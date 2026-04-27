@@ -78,10 +78,20 @@ function mapRowToUser(row: GenericRow): User | null {
   const dni = getString(row, dniColumnCandidates).replace(/\D/g, "");
   if (!dni) return null;
 
+  const nombreCompuesto = `${getString(row, ["nombre", "first_name"], "").trim()} ${getString(
+    row,
+    ["apellido", "last_name"],
+    "",
+  ).trim()}`.trim();
   const nombre =
-    getString(row, ["nombre_completo", "full_name", "nombre"]) ||
-    `${getString(row, ["nombre"], "").trim()} ${getString(row, ["apellido"], "").trim()}`.trim() ||
-    "Docente";
+    getString(row, ["nombre_completo", "full_name", "display_name"]) ||
+    nombreCompuesto ||
+    "";
+
+  // Evita usuarios "vacíos" que terminan apareciendo como "Docente" repetido.
+  if (!nombre || nombre.toLowerCase() === "docente") {
+    return null;
+  }
 
   const rol = normalizeRole(getString(row, ["rol", "role", "perfil", "tipo_usuario", "funcion"], "DOCENTE"));
   const carrera = normalizeCarrera(getString(row, ["carrera", "departamento", "carrera_nombre"], "Todas"));

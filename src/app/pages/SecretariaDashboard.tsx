@@ -1,4 +1,5 @@
-import { useState } from "react";
+﻿import { useState } from "react";
+import { Link } from "react-router";
 import { useUser } from "../context/UserContext";
 import { Check, X, FileText, Activity, Search, Filter, BookOpen, UserCircle, Eye, Mail, ArrowUpRight, ArrowDownRight, FileSpreadsheet, Download } from "lucide-react";
 import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, ResponsiveContainer } from "recharts";
@@ -34,8 +35,8 @@ type Evaluacion = {
 // --- Isolated chart sub-components to prevent cross-chart React key conflicts ---
 const donutDataStatic = [
   { id: 'saludable', name: 'Saludable', value: 85, color: '#10b981' },
-  { id: 'precaucion', name: 'Precaución', value: 20, color: '#f59e0b' },
-  { id: 'critico', name: 'Crítico', value: 15, color: '#e11d48' },
+  { id: 'precaucion', name: 'PrecauciÃ³n', value: 20, color: '#f59e0b' },
+  { id: 'critico', name: 'CrÃ­tico', value: 15, color: '#e11d48' },
 ];
 
 const gaugeDataStatic = [
@@ -95,7 +96,7 @@ function DonutChart() {
 function GaugeChart() {
   return (
     <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col h-[320px]">
-      <h3 className="text-sm font-bold text-slate-700 mb-2">Progreso de la Campaña</h3>
+      <h3 className="text-sm font-bold text-slate-700 mb-2">Progreso de la CampaÃ±a</h3>
       <div className="flex-1 relative flex flex-col items-center justify-center">
         <ResponsiveContainer width="100%" height={200}>
           <PieChart>
@@ -133,7 +134,7 @@ function AlertasBarChart() {
 
   return (
     <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col h-[320px]">
-      <h3 className="text-sm font-bold text-slate-700 mb-4">Alertas por Año Académico</h3>
+      <h3 className="text-sm font-bold text-slate-700 mb-4">Alertas por AÃ±o AcadÃ©mico</h3>
       <div className="flex-1 flex flex-col justify-end gap-3">
         {barDataStatic.map((entry) => {
           const pct = maxValue > 0 ? (entry.alertas / maxValue) * 100 : 0;
@@ -159,14 +160,14 @@ function AlertasBarChart() {
       </div>
       <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
         <span className="text-xs text-slate-400">0</span>
-        <span className="text-xs text-slate-400">Alertas por año</span>
+        <span className="text-xs text-slate-400">Alertas por aÃ±o</span>
         <span className="text-xs text-slate-400">{maxValue}</span>
       </div>
     </div>
   );
 }
 
-// Mock autoevaluación data per teacher
+// Mock autoevaluaciÃ³n data per teacher
 type RespuestaAutoevaluacion = {
   dimension: string;
   indicador: string;
@@ -178,46 +179,46 @@ type RespuestaAutoevaluacion = {
 
 const mockAutoevaluaciones: Record<number, RespuestaAutoevaluacion[]> = {
   1: [
-    { dimension: "Docencia", indicador: "Preparación de clases", planillaA: "Siempre", planillaB: "Casi siempre", puntaje: 4, observaciones: "Revisión de materiales semanalmente" },
-    { dimension: "Docencia", indicador: "Uso de recursos didácticos", planillaA: "Casi siempre", planillaB: "A veces", puntaje: 3, observaciones: "Se incorporaron TICs en 2025" },
-    { dimension: "Investigación", indicador: "Producción académica", planillaA: "A veces", planillaB: "Nunca", puntaje: 1, observaciones: "Sin publicaciones en el período" },
-    { dimension: "Extensión", indicador: "Participación en proyectos", planillaA: "Siempre", planillaB: "Siempre", puntaje: 5, observaciones: "Coord. proyecto extensión FAUD" },
-    { dimension: "Gestión", indicador: "Asistencia a reuniones", planillaA: "A veces", planillaB: "A veces", puntaje: 2, observaciones: "Conflicto de horarios reportado" },
+    { dimension: "Docencia", indicador: "PreparaciÃ³n de clases", planillaA: "Siempre", planillaB: "Casi siempre", puntaje: 4, observaciones: "RevisiÃ³n de materiales semanalmente" },
+    { dimension: "Docencia", indicador: "Uso de recursos didÃ¡cticos", planillaA: "Casi siempre", planillaB: "A veces", puntaje: 3, observaciones: "Se incorporaron TICs en 2025" },
+    { dimension: "InvestigaciÃ³n", indicador: "ProducciÃ³n acadÃ©mica", planillaA: "A veces", planillaB: "Nunca", puntaje: 1, observaciones: "Sin publicaciones en el perÃ­odo" },
+    { dimension: "ExtensiÃ³n", indicador: "ParticipaciÃ³n en proyectos", planillaA: "Siempre", planillaB: "Siempre", puntaje: 5, observaciones: "Coord. proyecto extensiÃ³n FAUD" },
+    { dimension: "GestiÃ³n", indicador: "Asistencia a reuniones", planillaA: "A veces", planillaB: "A veces", puntaje: 2, observaciones: "Conflicto de horarios reportado" },
   ],
   2: [
-    { dimension: "Docencia", indicador: "Preparación de clases", planillaA: "Siempre", planillaB: "Siempre", puntaje: 5, observaciones: "Material actualizado cada cuatrimestre" },
-    { dimension: "Docencia", indicador: "Uso de recursos didácticos", planillaA: "Siempre", planillaB: "Casi siempre", puntaje: 4, observaciones: "Laboratorios virtuales incorporados" },
-    { dimension: "Investigación", indicador: "Producción académica", planillaA: "Casi siempre", planillaB: "Casi siempre", puntaje: 4, observaciones: "2 ponencias en congreso 2025" },
-    { dimension: "Extensión", indicador: "Participación en proyectos", planillaA: "Siempre", planillaB: "Siempre", puntaje: 5, observaciones: "Voluntario activo" },
-    { dimension: "Gestión", indicador: "Asistencia a reuniones", planillaA: "Siempre", planillaB: "Siempre", puntaje: 5, observaciones: "" },
+    { dimension: "Docencia", indicador: "PreparaciÃ³n de clases", planillaA: "Siempre", planillaB: "Siempre", puntaje: 5, observaciones: "Material actualizado cada cuatrimestre" },
+    { dimension: "Docencia", indicador: "Uso de recursos didÃ¡cticos", planillaA: "Siempre", planillaB: "Casi siempre", puntaje: 4, observaciones: "Laboratorios virtuales incorporados" },
+    { dimension: "InvestigaciÃ³n", indicador: "ProducciÃ³n acadÃ©mica", planillaA: "Casi siempre", planillaB: "Casi siempre", puntaje: 4, observaciones: "2 ponencias en congreso 2025" },
+    { dimension: "ExtensiÃ³n", indicador: "ParticipaciÃ³n en proyectos", planillaA: "Siempre", planillaB: "Siempre", puntaje: 5, observaciones: "Voluntario activo" },
+    { dimension: "GestiÃ³n", indicador: "Asistencia a reuniones", planillaA: "Siempre", planillaB: "Siempre", puntaje: 5, observaciones: "" },
   ],
   3: [
-    { dimension: "Docencia", indicador: "Preparación de clases", planillaA: "Casi siempre", planillaB: "Siempre", puntaje: 4, observaciones: "" },
-    { dimension: "Docencia", indicador: "Uso de recursos didácticos", planillaA: "A veces", planillaB: "Casi siempre", puntaje: 3, observaciones: "En proceso de capacitación TIC" },
-    { dimension: "Investigación", indicador: "Producción académica", planillaA: "A veces", planillaB: "A veces", puntaje: 2, observaciones: "1 artículo en revisión" },
-    { dimension: "Extensión", indicador: "Participación en proyectos", planillaA: "Casi siempre", planillaB: "A veces", puntaje: 3, observaciones: "" },
-    { dimension: "Gestión", indicador: "Asistencia a reuniones", planillaA: "Casi siempre", planillaB: "Casi siempre", puntaje: 3, observaciones: "" },
+    { dimension: "Docencia", indicador: "PreparaciÃ³n de clases", planillaA: "Casi siempre", planillaB: "Siempre", puntaje: 4, observaciones: "" },
+    { dimension: "Docencia", indicador: "Uso de recursos didÃ¡cticos", planillaA: "A veces", planillaB: "Casi siempre", puntaje: 3, observaciones: "En proceso de capacitaciÃ³n TIC" },
+    { dimension: "InvestigaciÃ³n", indicador: "ProducciÃ³n acadÃ©mica", planillaA: "A veces", planillaB: "A veces", puntaje: 2, observaciones: "1 artÃ­culo en revisiÃ³n" },
+    { dimension: "ExtensiÃ³n", indicador: "ParticipaciÃ³n en proyectos", planillaA: "Casi siempre", planillaB: "A veces", puntaje: 3, observaciones: "" },
+    { dimension: "GestiÃ³n", indicador: "Asistencia a reuniones", planillaA: "Casi siempre", planillaB: "Casi siempre", puntaje: 3, observaciones: "" },
   ],
   4: [
-    { dimension: "Docencia", indicador: "Preparación de clases", planillaA: "A veces", planillaB: "Nunca", puntaje: 1, observaciones: "Situación en seguimiento" },
-    { dimension: "Docencia", indicador: "Uso de recursos didácticos", planillaA: "Nunca", planillaB: "Nunca", puntaje: 0, observaciones: "Sin evidencias" },
-    { dimension: "Investigación", indicador: "Producción académica", planillaA: "Nunca", planillaB: "Nunca", puntaje: 0, observaciones: "" },
-    { dimension: "Extensión", indicador: "Participación en proyectos", planillaA: "A veces", planillaB: "Nunca", puntaje: 1, observaciones: "" },
-    { dimension: "Gestión", indicador: "Asistencia a reuniones", planillaA: "Nunca", planillaB: "Nunca", puntaje: 0, observaciones: "Ausencias reiteradas" },
+    { dimension: "Docencia", indicador: "PreparaciÃ³n de clases", planillaA: "A veces", planillaB: "Nunca", puntaje: 1, observaciones: "SituaciÃ³n en seguimiento" },
+    { dimension: "Docencia", indicador: "Uso de recursos didÃ¡cticos", planillaA: "Nunca", planillaB: "Nunca", puntaje: 0, observaciones: "Sin evidencias" },
+    { dimension: "InvestigaciÃ³n", indicador: "ProducciÃ³n acadÃ©mica", planillaA: "Nunca", planillaB: "Nunca", puntaje: 0, observaciones: "" },
+    { dimension: "ExtensiÃ³n", indicador: "ParticipaciÃ³n en proyectos", planillaA: "A veces", planillaB: "Nunca", puntaje: 1, observaciones: "" },
+    { dimension: "GestiÃ³n", indicador: "Asistencia a reuniones", planillaA: "Nunca", planillaB: "Nunca", puntaje: 0, observaciones: "Ausencias reiteradas" },
   ],
   5: [
-    { dimension: "Docencia", indicador: "Preparación de clases", planillaA: "Siempre", planillaB: "Siempre", puntaje: 5, observaciones: "" },
-    { dimension: "Docencia", indicador: "Uso de recursos didácticos", planillaA: "Siempre", planillaB: "Siempre", puntaje: 5, observaciones: "Modelo de innovación pedagógica" },
-    { dimension: "Investigación", indicador: "Producción académica", planillaA: "Siempre", planillaB: "Siempre", puntaje: 5, observaciones: "3 publicaciones ISI 2025" },
-    { dimension: "Extensión", indicador: "Participación en proyectos", planillaA: "Siempre", planillaB: "Siempre", puntaje: 5, observaciones: "Directora proyecto extensión" },
-    { dimension: "Gestión", indicador: "Asistencia a reuniones", planillaA: "Siempre", planillaB: "Siempre", puntaje: 5, observaciones: "" },
+    { dimension: "Docencia", indicador: "PreparaciÃ³n de clases", planillaA: "Siempre", planillaB: "Siempre", puntaje: 5, observaciones: "" },
+    { dimension: "Docencia", indicador: "Uso de recursos didÃ¡cticos", planillaA: "Siempre", planillaB: "Siempre", puntaje: 5, observaciones: "Modelo de innovaciÃ³n pedagÃ³gica" },
+    { dimension: "InvestigaciÃ³n", indicador: "ProducciÃ³n acadÃ©mica", planillaA: "Siempre", planillaB: "Siempre", puntaje: 5, observaciones: "3 publicaciones ISI 2025" },
+    { dimension: "ExtensiÃ³n", indicador: "ParticipaciÃ³n en proyectos", planillaA: "Siempre", planillaB: "Siempre", puntaje: 5, observaciones: "Directora proyecto extensiÃ³n" },
+    { dimension: "GestiÃ³n", indicador: "Asistencia a reuniones", planillaA: "Siempre", planillaB: "Siempre", puntaje: 5, observaciones: "" },
   ],
   6: [
-    { dimension: "Docencia", indicador: "Preparación de clases", planillaA: "Casi siempre", planillaB: "A veces", puntaje: 2, observaciones: "Demoras en entrega de materiales" },
-    { dimension: "Docencia", indicador: "Uso de recursos didácticos", planillaA: "A veces", planillaB: "A veces", puntaje: 2, observaciones: "" },
-    { dimension: "Investigación", indicador: "Producción académica", planillaA: "Casi siempre", planillaB: "Casi siempre", puntaje: 4, observaciones: "Tesis doctoral en curso" },
-    { dimension: "Extensión", indicador: "Participación en proyectos", planillaA: "A veces", planillaB: "A veces", puntaje: 2, observaciones: "" },
-    { dimension: "Gestión", indicador: "Asistencia a reuniones", planillaA: "Casi siempre", planillaB: "A veces", puntaje: 2, observaciones: "" },
+    { dimension: "Docencia", indicador: "PreparaciÃ³n de clases", planillaA: "Casi siempre", planillaB: "A veces", puntaje: 2, observaciones: "Demoras en entrega de materiales" },
+    { dimension: "Docencia", indicador: "Uso de recursos didÃ¡cticos", planillaA: "A veces", planillaB: "A veces", puntaje: 2, observaciones: "" },
+    { dimension: "InvestigaciÃ³n", indicador: "ProducciÃ³n acadÃ©mica", planillaA: "Casi siempre", planillaB: "Casi siempre", puntaje: 4, observaciones: "Tesis doctoral en curso" },
+    { dimension: "ExtensiÃ³n", indicador: "ParticipaciÃ³n en proyectos", planillaA: "A veces", planillaB: "A veces", puntaje: 2, observaciones: "" },
+    { dimension: "GestiÃ³n", indicador: "Asistencia a reuniones", planillaA: "Casi siempre", planillaB: "A veces", puntaje: 2, observaciones: "" },
   ],
 };
 
@@ -225,10 +226,10 @@ export function SecretariaDashboard() {
   const { user } = useUser();
   const [activeTab, setActiveTab] = useState<"tramites" | "archivo" | "semaforo">("semaforo");
 
-  // --- TAB 1: TRÁMITES ---
+  // --- TAB 1: TRÃMITES ---
   const [solicitudes, setSolicitudes] = useState<Solicitud[]>([
-    { id: 301, tipo: "Ayudante", responsable: "Arq. Mario B.", alumno: "Juan Pérez", dni: "44555666", nota: 8.5, estado: "Pendiente V1" },
-    { id: 302, tipo: "Adscripto", responsable: "Lic. Clara M.", alumno: "Ana López", dni: "42111222", nota: 6.5, estado: "Pendiente V1" },
+    { id: 301, tipo: "Ayudante", responsable: "Arq. Mario B.", alumno: "Juan PÃ©rez", dni: "44555666", nota: 8.5, estado: "Pendiente V1" },
+    { id: 302, tipo: "Adscripto", responsable: "Lic. Clara M.", alumno: "Ana LÃ³pez", dni: "42111222", nota: 6.5, estado: "Pendiente V1" },
   ]);
 
   const procesarSolicitud = (id: number, currentEstado: string, nota: number) => {
@@ -249,9 +250,9 @@ export function SecretariaDashboard() {
   // --- TAB 2: ARCHIVO ---
   const [searchTermArchivo, setSearchTermArchivo] = useState("");
   const [resoluciones] = useState<ResolucionPDF[]>([
-    { id: "RF-2025-014", titulo: "Desig. Ayudante - Gómez", fecha: "2025-03-10", carrera: "Arquitectura", estado: "Superadas", feedback: "Excelente desempeño, se recomienda renovación." },
-    { id: "RF-2026-042", titulo: "Desig. Adscripto - Ruiz", fecha: "2026-02-15", carrera: "Diseño Ind.", estado: "Vigente", feedback: null },
-    { id: "RF-2025-089", titulo: "Desig. Ayudante - Díaz", fecha: "2025-07-20", carrera: "Lic. Interiores", estado: "Superadas", feedback: "Cumplió tareas parcialmente." },
+    { id: "RF-2025-014", titulo: "Desig. Ayudante - GÃ³mez", fecha: "2025-03-10", carrera: "Arquitectura", estado: "Superadas", feedback: "Excelente desempeÃ±o, se recomienda renovaciÃ³n." },
+    { id: "RF-2026-042", titulo: "Desig. Adscripto - Ruiz", fecha: "2026-02-15", carrera: "DiseÃ±o Ind.", estado: "Vigente", feedback: null },
+    { id: "RF-2025-089", titulo: "Desig. Ayudante - DÃ­az", fecha: "2025-07-20", carrera: "Lic. Interiores", estado: "Superadas", feedback: "CumpliÃ³ tareas parcialmente." },
   ]);
 
   const filteredResoluciones = resoluciones.filter(r => 
@@ -259,20 +260,20 @@ export function SecretariaDashboard() {
     r.id.toLowerCase().includes(searchTermArchivo.toLowerCase())
   );
 
-  // --- TAB 3: CENTRO DE MANDO (SEMÁFORO) ---
+  // --- TAB 3: CENTRO DE MANDO (SEMÃFORO) ---
   const [searchTermSemaforo, setSearchTermSemaforo] = useState("");
   const [filterRiesgo, setFilterRiesgo] = useState("Todos");
   
   const [evaluaciones] = useState<Evaluacion[]>([
-    { id: 1, nombre: "Laura Martínez", cargo: "Titular", asignatura: "Matemática", alertas: 3 },
-    { id: 2, nombre: "Carlos Gómez", cargo: "Auxiliar", asignatura: "Física", alertas: 0 },
-    { id: 3, nombre: "Ana Sánchez", cargo: "JTP", asignatura: "Química", alertas: 1 },
-    { id: 4, nombre: "Pedro Ruiz", cargo: "Adscripto", asignatura: "Biología", alertas: 4 },
-    { id: 5, nombre: "Julieta Paz", cargo: "Titular", asignatura: "Diseño II", alertas: 0 },
-    { id: 6, nombre: "Martín Fierro", cargo: "Ayudante", asignatura: "Estructuras", alertas: 2 },
+    { id: 1, nombre: "Laura MartÃ­nez", cargo: "Titular", asignatura: "MatemÃ¡tica", alertas: 3 },
+    { id: 2, nombre: "Carlos GÃ³mez", cargo: "Auxiliar", asignatura: "FÃ­sica", alertas: 0 },
+    { id: 3, nombre: "Ana SÃ¡nchez", cargo: "JTP", asignatura: "QuÃ­mica", alertas: 1 },
+    { id: 4, nombre: "Pedro Ruiz", cargo: "Adscripto", asignatura: "BiologÃ­a", alertas: 4 },
+    { id: 5, nombre: "Julieta Paz", cargo: "Titular", asignatura: "DiseÃ±o II", alertas: 0 },
+    { id: 6, nombre: "MartÃ­n Fierro", cargo: "Ayudante", asignatura: "Estructuras", alertas: 2 },
   ]);
 
-  // Chart Data — kept for reference but now used in isolated sub-components above
+  // Chart Data â€” kept for reference but now used in isolated sub-components above
   const donutData = donutDataStatic;
   const gaugeData = gaugeDataStatic;
   const barData = barDataStatic;
@@ -285,8 +286,8 @@ export function SecretariaDashboard() {
   };
 
   const getStatusText = (alertas: number) => {
-    if (alertas >= 3) return "Crítico";
-    if (alertas >= 1) return "Precaución";
+    if (alertas >= 3) return "CrÃ­tico";
+    if (alertas >= 1) return "PrecauciÃ³n";
     return "Saludable";
   };
 
@@ -304,13 +305,13 @@ export function SecretariaDashboard() {
 
     // Sheet 1: Datos del docente
     const infoData = [
-      ["AUTOEVALUACIÓN DOCENTE 2026 – Portal Docente FAUD"],
+      ["AUTOEVALUACIÃ“N DOCENTE 2026 â€“ Portal Docente FAUD"],
       [],
       ["Nombre completo", ev.nombre],
       ["Cargo", ev.cargo],
       ["Asignatura", ev.asignatura],
       ["Estado de riesgo", getStatusText(ev.alertas)],
-      ["N° de alertas", ev.alertas],
+      ["NÂ° de alertas", ev.alertas],
       ["Fecha de descarga", new Date().toLocaleDateString("es-AR")],
     ];
     const wsInfo = XLSX.utils.aoa_to_sheet(infoData);
@@ -318,28 +319,28 @@ export function SecretariaDashboard() {
     XLSX.utils.book_append_sheet(wb, wsInfo, "Datos Docente");
 
     // Sheet 2: Planilla A
-    const planillaAHeader = [["Dimensión", "Indicador", "Respuesta (Planilla A)", "Puntaje", "Observaciones"]];
+    const planillaAHeader = [["DimensiÃ³n", "Indicador", "Respuesta (Planilla A)", "Puntaje", "Observaciones"]];
     const planillaARows = respuestas.map(r => [r.dimension, r.indicador, r.planillaA, r.puntaje, r.observaciones]);
     const wsA = XLSX.utils.aoa_to_sheet([...planillaAHeader, ...planillaARows]);
     wsA["!cols"] = [{ wch: 18 }, { wch: 35 }, { wch: 20 }, { wch: 10 }, { wch: 40 }];
     XLSX.utils.book_append_sheet(wb, wsA, "Planilla A");
 
     // Sheet 3: Planilla B
-    const planillaBHeader = [["Dimensión", "Indicador", "Respuesta (Planilla B)", "Puntaje", "Observaciones"]];
+    const planillaBHeader = [["DimensiÃ³n", "Indicador", "Respuesta (Planilla B)", "Puntaje", "Observaciones"]];
     const planillaBRows = respuestas.map(r => [r.dimension, r.indicador, r.planillaB, r.puntaje, r.observaciones]);
     const wsB = XLSX.utils.aoa_to_sheet([...planillaBHeader, ...planillaBRows]);
     wsB["!cols"] = [{ wch: 18 }, { wch: 35 }, { wch: 20 }, { wch: 10 }, { wch: 40 }];
     XLSX.utils.book_append_sheet(wb, wsB, "Planilla B");
 
     // Sheet 4: Comparativa
-    const compHeader = [["Dimensión", "Indicador", "Planilla A", "Planilla B", "Puntaje", "Divergencia", "Observaciones"]];
+    const compHeader = [["DimensiÃ³n", "Indicador", "Planilla A", "Planilla B", "Puntaje", "Divergencia", "Observaciones"]];
     const compRows = respuestas.map(r => [
       r.dimension,
       r.indicador,
       r.planillaA,
       r.planillaB,
       r.puntaje,
-      r.planillaA !== r.planillaB ? "Sí" : "No",
+      r.planillaA !== r.planillaB ? "SÃ­" : "No",
       r.observaciones,
     ]);
     const wsComp = XLSX.utils.aoa_to_sheet([...compHeader, ...compRows]);
@@ -359,7 +360,7 @@ export function SecretariaDashboard() {
     const wb = XLSX.utils.book_new();
 
     // Summary sheet
-    const summaryHeader = [["Nombre", "Cargo", "Asignatura", "Estado", "N° Alertas"]];
+    const summaryHeader = [["Nombre", "Cargo", "Asignatura", "Estado", "NÂ° Alertas"]];
     const summaryRows = filteredEvaluaciones.map(ev => [
       ev.nombre,
       ev.cargo,
@@ -374,14 +375,14 @@ export function SecretariaDashboard() {
     // One sheet per teacher (comparativa)
     filteredEvaluaciones.forEach(ev => {
       const respuestas = mockAutoevaluaciones[ev.id] ?? [];
-      const header = [["Dimensión", "Indicador", "Planilla A", "Planilla B", "Puntaje", "Divergencia"]];
+      const header = [["DimensiÃ³n", "Indicador", "Planilla A", "Planilla B", "Puntaje", "Divergencia"]];
       const rows = respuestas.map(r => [
         r.dimension,
         r.indicador,
         r.planillaA,
         r.planillaB,
         r.puntaje,
-        r.planillaA !== r.planillaB ? "Sí" : "No",
+        r.planillaA !== r.planillaB ? "SÃ­" : "No",
       ]);
       const ws = XLSX.utils.aoa_to_sheet([...header, ...rows]);
       ws["!cols"] = [{ wch: 16 }, { wch: 30 }, { wch: 16 }, { wch: 16 }, { wch: 10 }, { wch: 12 }];
@@ -400,17 +401,17 @@ export function SecretariaDashboard() {
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-2">
         <div>
           <h2 className="text-3xl font-bold text-slate-900 tracking-tight">
-            Secretaría Académica
+            SecretarÃ­a AcadÃ©mica
           </h2>
           <p className="text-slate-500 mt-2 text-sm font-medium">
-            Verificación de datos, resoluciones y control de gestión.
+            VerificaciÃ³n de datos, resoluciones y control de gestiÃ³n.
           </p>
         </div>
         
         {/* Tabs styled as soft pills */}
         <div className="flex bg-white p-1 rounded-xl shadow-sm border border-slate-200 w-fit">
           <button onClick={() => setActiveTab("tramites")} className={`px-5 py-2 font-medium text-sm rounded-lg transition-colors ${activeTab === "tramites" ? "bg-slate-100 text-slate-900" : "text-slate-500 hover:text-slate-800"}`}>
-            Trámites Pendientes
+            TrÃ¡mites Pendientes
           </button>
           <button onClick={() => setActiveTab("archivo")} className={`px-5 py-2 font-medium text-sm rounded-lg transition-colors ${activeTab === "archivo" ? "bg-slate-100 text-slate-900" : "text-slate-500 hover:text-slate-800"}`}>
             Archivo de RFs
@@ -421,7 +422,7 @@ export function SecretariaDashboard() {
         </div>
       </div>
 
-      {/* --- TAB 1 CONTENT: TRÁMITES --- */}
+      {/* --- TAB 1 CONTENT: TRÃMITES --- */}
       {activeTab === "tramites" && (
         <div className="bg-white p-6 md:p-8 rounded-xl shadow-sm border border-slate-100 flex flex-col gap-6">
           <div className="flex items-center gap-3 mb-2">
@@ -430,7 +431,7 @@ export function SecretariaDashboard() {
             </div>
             <div>
               <h3 className="text-xl font-bold text-slate-800">Panel de Procesos (Ayudantes y Adscriptos)</h3>
-              <p className="text-sm text-slate-500">Gestione y evalúe las designaciones en curso y pendientes de resolución.</p>
+              <p className="text-sm text-slate-500">Gestione y evalÃºe las designaciones en curso y pendientes de resoluciÃ³n.</p>
             </div>
           </div>
           
@@ -440,12 +441,12 @@ export function SecretariaDashboard() {
                 <UserCircle className="w-6 h-6" />
               </div>
               <div>
-                <h4 className="font-bold text-slate-800 text-lg">Módulo Ayudantes Alumnos</h4>
+                <h4 className="font-bold text-slate-800 text-lg">MÃ³dulo Ayudantes Alumnos</h4>
                 <p className="text-slate-500 text-sm mt-1">Gestione el circuito de 8 fases para estudiantes.</p>
               </div>
-              <a href="/ayudantes" className="mt-2 w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors">
-                Ingresar al Módulo
-              </a>
+              <Link to="/ayudantes" className="mt-2 w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-medium transition-colors">
+                Ingresar al MÃ³dulo
+              </Link>
             </div>
 
             <div className="bg-slate-50 p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col items-center text-center gap-4 hover:shadow-md transition-shadow">
@@ -453,12 +454,12 @@ export function SecretariaDashboard() {
                 <BookOpen className="w-6 h-6" />
               </div>
               <div>
-                <h4 className="font-bold text-slate-800 text-lg">Módulo Adscriptos Profesionales</h4>
+                <h4 className="font-bold text-slate-800 text-lg">MÃ³dulo Adscriptos Profesionales</h4>
                 <p className="text-slate-500 text-sm mt-1">Gestione el circuito de 9 fases de control estricto.</p>
               </div>
-              <a href="/adscriptos" className="mt-2 w-full py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors">
-                Ingresar al Módulo
-              </a>
+              <Link to="/adscriptos" className="mt-2 w-full py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors">
+                Ingresar al MÃ³dulo
+              </Link>
             </div>
           </div>
         </div>
@@ -494,8 +495,8 @@ export function SecretariaDashboard() {
             <table className="w-full text-left text-sm text-slate-600">
               <thead className="bg-slate-50 text-xs uppercase text-slate-500 border-b border-slate-200">
                 <tr>
-                  <th className="px-4 py-3 font-semibold">N° Resolución</th>
-                  <th className="px-4 py-3 font-semibold">Título</th>
+                  <th className="px-4 py-3 font-semibold">NÂ° ResoluciÃ³n</th>
+                  <th className="px-4 py-3 font-semibold">TÃ­tulo</th>
                   <th className="px-4 py-3 font-semibold">Carrera</th>
                   <th className="px-4 py-3 font-semibold">Estado</th>
                   <th className="px-4 py-3 font-semibold text-right">Feedback Docente</th>
@@ -529,12 +530,12 @@ export function SecretariaDashboard() {
         </div>
       )}
 
-      {/* --- TAB 3 CONTENT: CENTRO DE MANDO (SEMÁFORO) --- */}
+      {/* --- TAB 3 CONTENT: CENTRO DE MANDO (SEMÃFORO) --- */}
       {activeTab === "semaforo" && (
         <div className="space-y-6">
           {/* Header Dashboard */}
           <div className="bg-white px-6 py-4 rounded-xl shadow-sm border border-slate-100 flex flex-col md:flex-row items-center justify-between gap-4">
-            <h1 className="text-2xl font-bold text-slate-800">Centro de Mando - Autoevaluación 2026</h1>
+            <h1 className="text-2xl font-bold text-slate-800">Centro de Mando - AutoevaluaciÃ³n 2026</h1>
             <div className="flex items-center gap-4 w-full md:w-auto">
               <div className="relative flex-1 md:w-64">
                 <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -553,18 +554,18 @@ export function SecretariaDashboard() {
           {/* KPIs Row */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between">
-              <p className="text-sm font-medium text-slate-500">Tasa de Participación</p>
+              <p className="text-sm font-medium text-slate-500">Tasa de ParticipaciÃ³n</p>
               <div className="mt-2 flex items-baseline gap-2">
                 <span className="text-4xl font-black text-[#1e3a8a]">85</span>
                 <span className="text-lg text-slate-400">/120</span>
               </div>
               <p className="text-xs text-emerald-600 font-medium flex items-center gap-1 mt-3">
-                <ArrowUpRight className="w-3 h-3" /> 15% vs año pasado
+                <ArrowUpRight className="w-3 h-3" /> 15% vs aÃ±o pasado
               </p>
             </div>
             
             <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between">
-              <p className="text-sm font-medium text-slate-500">Casos Críticos Activos</p>
+              <p className="text-sm font-medium text-slate-500">Casos CrÃ­ticos Activos</p>
               <div className="mt-2 flex items-baseline gap-2">
                 <span className="text-4xl font-black text-rose-600">15</span>
                 <span className="text-sm text-slate-400 ml-1">docentes</span>
@@ -590,7 +591,7 @@ export function SecretariaDashboard() {
                 <span className="text-4xl font-black text-amber-500">35</span>
               </div>
               <p className="text-xs text-slate-500 font-medium flex items-center gap-1 mt-3">
-                En plazo límite de entrega
+                En plazo lÃ­mite de entrega
               </p>
             </div>
           </div>
@@ -628,8 +629,8 @@ export function SecretariaDashboard() {
                   >
                     <option value="Todos">Todos los niveles</option>
                     <option value="Saludable">Saludable</option>
-                    <option value="Precaución">Precaución</option>
-                    <option value="Crítico">Crítico</option>
+                    <option value="PrecauciÃ³n">PrecauciÃ³n</option>
+                    <option value="CrÃ­tico">CrÃ­tico</option>
                   </select>
                 </div>
                 <button
@@ -678,7 +679,7 @@ export function SecretariaDashboard() {
                             </button>
                             <button
                               onClick={() => handleDownloadExcel(ev)}
-                              title="Descargar autoevaluación en Excel"
+                              title="Descargar autoevaluaciÃ³n en Excel"
                               className="text-slate-400 hover:text-emerald-600 transition-colors p-1"
                             >
                               <FileSpreadsheet className="w-5 h-5" />
@@ -706,3 +707,4 @@ export function SecretariaDashboard() {
     </div>
   );
 }
+

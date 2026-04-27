@@ -146,8 +146,13 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
     async function loadProfesores() {
       try {
-        const profesores = await getProfesoresFromSupabase();
+        const profesoresRaw = await getProfesoresFromSupabase();
         if (!active) return;
+
+        const profesores = profesoresRaw.filter((profesor) => {
+          const nombre = profesor.nombre.trim().toLowerCase();
+          return Boolean(nombre) && nombre !== "docente";
+        });
 
         const merged = sortPersonas(mergeUniqueUsers([adminUser], profesores, fallbackPersonas));
         setPersonas(merged);
