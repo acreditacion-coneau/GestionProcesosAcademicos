@@ -28,6 +28,17 @@ export const TramiteCard: React.FC<{ tramite: Tramite }> = ({ tramite }) => {
   }
 
   const isResponsable = tramite.responsableActual === rolActivo && tramite.estado !== 'FINALIZADO';
+  const alumnosResumen = tramite.alumnosPropuestos.length > 1
+    ? `${tramite.alumnosPropuestos[0]?.nombreCompleto} +${tramite.alumnosPropuestos.length - 1}`
+    : (tramite.alumnosPropuestos[0]?.nombreCompleto || tramite.alumno);
+  const historialVisible = user.rol === "DOCENTE_RESPONSABLE"
+    ? tramite.historial.filter(
+        (evt) =>
+          evt.rol === "DOCENTE_RESPONSABLE" ||
+          evt.actor.toLowerCase().includes(user.nombre.toLowerCase()) ||
+          evt.actor.toLowerCase().includes(user.dni),
+      )
+    : tramite.historial;
 
   return (
     <div className={cn(
@@ -69,9 +80,12 @@ export const TramiteCard: React.FC<{ tramite: Tramite }> = ({ tramite }) => {
             {tramite.materia}
           </h3>
           <p className="text-sm text-gray-500 flex items-center gap-4 mt-1">
-            <span className="flex items-center"><User className="w-4 h-4 mr-1" /> Alumno: {tramite.alumno}</span>
+            <span className="flex items-center"><User className="w-4 h-4 mr-1" /> Alumno(s): {alumnosResumen}</span>
             <span className="flex items-center"><CheckCircle2 className="w-4 h-4 mr-1" /> Nota: {tramite.nota}</span>
             <span className="flex items-center"><Clock className="w-4 h-4 mr-1" /> {diasEnFaseActual} días en fase actual</span>
+          </p>
+          <p className="text-xs text-gray-500 mt-1">
+            {tramite.carrera} · {tramite.anioCarrera} · {tramite.regimen} · Solicitud: {format(new Date(tramite.fechaSolicitud), "dd/MM/yyyy")}
           </p>
         </div>
         
@@ -143,10 +157,10 @@ export const TramiteCard: React.FC<{ tramite: Tramite }> = ({ tramite }) => {
                 <History className="w-4 h-4 mr-2" /> Historial y Trazabilidad
               </h4>
               <div className="space-y-4 pl-2">
-                {tramite.historial.map((evt, idx) => (
+                {historialVisible.map((evt, idx) => (
                   <div key={evt.id} className="relative pl-6 pb-2">
                     {/* Timeline line */}
-                    {idx !== tramite.historial.length - 1 && (
+                    {idx !== historialVisible.length - 1 && (
                       <div className="absolute left-1.5 top-3 bottom-0 w-px bg-gray-200" />
                     )}
                     {/* Dot */}
@@ -170,6 +184,9 @@ export const TramiteCard: React.FC<{ tramite: Tramite }> = ({ tramite }) => {
                     </div>
                   </div>
                 ))}
+                {historialVisible.length === 0 && (
+                  <p className="text-xs text-gray-500 italic">No hay eventos de trazabilidad asociados a su participación.</p>
+                )}
               </div>
             </div>
 

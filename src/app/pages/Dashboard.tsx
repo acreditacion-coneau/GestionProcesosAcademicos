@@ -15,11 +15,12 @@ export const Dashboard: React.FC = () => {
   const [filterMode, setFilterMode] = useState<'EN_CURSO' | 'TERMINADOS' | 'PENDIENTES'>('PENDIENTES');
 
   useEffect(() => {
-    let newRol: 'DOCENTE' | 'ADMINISTRATIVO' | 'JEFE_CARRERA' | 'SECRETARIA' = 'DOCENTE';
+    let newRol: 'DOCENTE' | 'DOCENTE_RESPONSABLE' | 'ADMINISTRATIVO' | 'JEFE_CARRERA' | 'SECRETARIA' = 'DOCENTE';
     if (user.rol === 'ADMINISTRATIVO') newRol = 'ADMINISTRATIVO';
     if (user.rol === 'JEFE_CARRERA') newRol = 'JEFE_CARRERA';
     if (user.rol === 'SECRETARIA') newRol = 'SECRETARIA';
-    if (user.rol === 'DOCENTE_RESPONSABLE' || user.rol === 'DOCENTE') newRol = 'DOCENTE';
+    if (user.rol === 'DOCENTE_RESPONSABLE') newRol = 'DOCENTE_RESPONSABLE';
+    if (user.rol === 'DOCENTE') newRol = 'DOCENTE';
     setRolActivo(newRol);
   }, [user.rol, setRolActivo]);
 
@@ -68,7 +69,7 @@ export const Dashboard: React.FC = () => {
               </button>
             )}
             
-            {rolActivo === 'DOCENTE' && (
+            {(rolActivo === 'DOCENTE' || rolActivo === 'DOCENTE_RESPONSABLE') && (
               <button 
                 onClick={() => setShowNewModal(true)}
                 className="flex items-center justify-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 transition-colors"

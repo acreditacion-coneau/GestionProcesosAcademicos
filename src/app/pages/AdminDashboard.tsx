@@ -7,10 +7,11 @@ import { SecTecnicaDashboard } from "./SecTecnicaDashboard";
 import { AdministrativoDashboard } from "./AdministrativoDashboard";
 import { useUser } from "../context/UserContext";
 
-type AdminViewKey = "docente" | "jefe" | "secretaria" | "tecnica" | "mesa";
+type AdminViewKey = "docente" | "responsable" | "jefe" | "secretaria" | "tecnica" | "mesa";
 
 const VIEW_CONFIG: Array<{ key: AdminViewKey; label: string; hint: string }> = [
   { key: "docente", label: "Vista Docente", hint: "Carga y gestión de tareas docentes" },
+  { key: "responsable", label: "Vista Responsable de Cátedra", hint: "Gestión integral de solicitudes e informes de cierre" },
   { key: "jefe", label: "Vista Jefe de Carrera", hint: "Validaciones y aprobaciones de carrera" },
   { key: "secretaria", label: "Vista Secretaría Académica", hint: "Resoluciones y seguimiento académico" },
   { key: "tecnica", label: "Vista Secretaría Técnica", hint: "Operación técnica y adscriptos" },
@@ -21,6 +22,8 @@ function RenderAdminView({ view }: { view: AdminViewKey }) {
   switch (view) {
     case "docente":
       return <TeacherDashboard />;
+    case "responsable":
+      return <TeacherDashboard forceResponsableView />;
     case "jefe":
       return <JefeCarreraDashboard />;
     case "secretaria":
@@ -66,7 +69,7 @@ export function AdminDashboard() {
           </div>
         </div>
 
-        <div className="mt-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-2">
+        <div className="mt-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-2">
           {VIEW_CONFIG.map((view) => (
             <button
               key={view.key}

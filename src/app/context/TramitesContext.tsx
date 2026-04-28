@@ -5,6 +5,13 @@ import { emailService } from "../services/emailService";
 
 export type Role = "DOCENTE" | "DOCENTE_RESPONSABLE" | "ADMINISTRATIVO" | "JEFE_CARRERA" | "SECRETARIA" | "SEC_TECNICA";
 export type Status = "PENDIENTE" | "EN_REVISION" | "OBSERVADO" | "RECHAZADO" | "DEVUELTO" | "APROBADO" | "FINALIZADO";
+export type Carrera = "Arquitectura" | "Lic. en Diseño de Interiores" | "Diseño Industrial" | "Lic. en Gestión Eficiente de la Energía";
+export type Regimen = "Semestral" | "Anual";
+
+export interface AlumnoPropuesto {
+  nombreCompleto: string;
+  dni: string;
+}
 
 export interface Documento {
   id: string;
@@ -29,6 +36,11 @@ export interface Tramite {
   materia: string;
   alumno: string;
   nota: number;
+  fechaSolicitud: string;
+  carrera: Carrera;
+  anioCarrera: string;
+  regimen: Regimen;
+  alumnosPropuestos: AlumnoPropuesto[];
   faseActual: number;
   estado: Status;
   responsableActual: Role;
@@ -49,7 +61,13 @@ interface TramitesContextType {
   setRolActivo: (rol: Role) => void;
   cicloConfig: CicloConfig;
   setCicloConfig: (config: CicloConfig) => void;
-  crearTramite: (data: Partial<Tramite>) => Promise<void>;
+  crearTramite: (data: {
+    carrera: Carrera;
+    anioCarrera: string;
+    materia: string;
+    regimen: Regimen;
+    alumnosPropuestos: AlumnoPropuesto[];
+  }) => Promise<void>;
   avanzarFase: (id: string, accion: string, comentario?: string, nuevoDoc?: Documento) => Promise<void>;
   rechazarTramite: (id: string, motivo: string) => Promise<void>;
   devolverTramite: (id: string, observaciones: string, faseDestino: number) => Promise<void>;
@@ -104,6 +122,11 @@ const seedTramites: Tramite[] = [
     materia: "Análisis Matemático II",
     alumno: "Juan Pérez",
     nota: 9,
+    fechaSolicitud: new Date(Date.now() - 15 * 86400000).toISOString(),
+    carrera: "Arquitectura",
+    anioCarrera: "2do",
+    regimen: "Semestral",
+    alumnosPropuestos: [{ nombreCompleto: "Juan Pérez", dni: "40111222" }],
     faseActual: 2,
     estado: "EN_REVISION",
     responsableActual: "ADMINISTRATIVO",
@@ -126,6 +149,11 @@ const seedTramites: Tramite[] = [
     materia: "Física I",
     alumno: "María Torres",
     nota: 8,
+    fechaSolicitud: new Date(Date.now() - 10 * 86400000).toISOString(),
+    carrera: "Arquitectura",
+    anioCarrera: "1ro",
+    regimen: "Anual",
+    alumnosPropuestos: [{ nombreCompleto: "María Torres", dni: "38999111" }],
     faseActual: 3,
     estado: "PENDIENTE",
     responsableActual: "JEFE_CARRERA",
@@ -201,12 +229,25 @@ export const TramitesProvider: React.FC<{ children: ReactNode }> = ({ children }
     setNotificaciones((prev) => prev.map((n) => (n.rolDestino === rol ? { ...n, leida: true } : n)));
   };
 
-  const crearTramite = async (data: Partial<Tramite>) => {
+  const crearTramite = async (data: {
+    carrera: Carrera;
+    anioCarrera: string;
+    materia: string;
+    regimen: Regimen;
+    alumnosPropuestos: AlumnoPropuesto[];
+  }) => {
+    const primerAlumno = data.alumnosPropuestos[0];
+    const alumnosPropuestos = data.alumnosPropuestos;
     const nuevoTramite: Tramite = {
       id: `AYD-${new Date().getFullYear()}-${Date.now().toString().slice(-6)}`,
-      materia: data.materia || "",
-      alumno: data.alumno || "",
-      nota: data.nota || 7,
+      materia: data.materia,
+      alumno: primerAlumno?.nombreCompleto || "",
+      nota: 8,
+      fechaSolicitud: new Date().toISOString(),
+      carrera: data.carrera,
+      anioCarrera: data.anioCarrera,
+      regimen: data.regimen,
+      alumnosPropuestos,
       faseActual: 2,
       estado: "PENDIENTE",
       responsableActual: "ADMINISTRATIVO",
@@ -221,7 +262,7 @@ export const TramitesProvider: React.FC<{ children: ReactNode }> = ({ children }
     crearNotificacion({
       tipo: "info",
       titulo: "Nuevo trámite para verificación",
-      mensaje: `${nuevoTramite.id}: revisar solicitud de ${nuevoTramite.alumno}.`,
+      mensaje: `${nuevoTramite.id}: revisar solicitud de ${nuevoTramite.alumno} (${nuevoTramite.carrera} - ${nuevoTramite.anioCarrera}).`,
       tramiteId: nuevoTramite.id,
       rolDestino: "ADMINISTRATIVO",
       destinatarioEmail: "admin@uni.edu.ar",
@@ -231,7 +272,7 @@ export const TramitesProvider: React.FC<{ children: ReactNode }> = ({ children }
       "admin@uni.edu.ar",
       "ADMINISTRATIVO",
       `Nuevo trámite de Ayudantía: ${nuevoTramite.id}`,
-      `Se creó una nueva solicitud para ${nuevoTramite.alumno} en ${nuevoTramite.materia}.`,
+      `Se creó una nueva solicitud para ${nuevoTramite.alumno} en ${nuevoTramite.materia} (${nuevoTramite.carrera} - ${nuevoTramite.anioCarrera}).`,
     );
   };
 

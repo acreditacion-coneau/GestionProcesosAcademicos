@@ -7,10 +7,14 @@ import {
   UserPlus, UserCheck, FileText, ShieldAlert, ClipboardList, FolderOpen
 } from "lucide-react";
 
-export function TeacherDashboard() {
+interface TeacherDashboardProps {
+  forceResponsableView?: boolean;
+}
+
+export function TeacherDashboard({ forceResponsableView = false }: TeacherDashboardProps) {
   const { user } = useUser();
   const { isSidebarCollapsed } = useLayoutState();
-  const isResponsable = user.rol === "DOCENTE_RESPONSABLE";
+  const isResponsable = forceResponsableView || user.rol === "DOCENTE_RESPONSABLE";
 
   const [activeFilter, setActiveFilter] = useState("all");
   const [categoriesOpen, setCategoriesOpen] = useState(true);
