@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+Ôªøimport React, { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { format } from "date-fns";
 import type { Notificacion } from "../types/tramites";
 import { emailService } from "../services/emailService";
@@ -8,7 +8,7 @@ import { useUser } from "./UserContext";
 export type Role = "DOCENTE" | "DOCENTE_RESPONSABLE" | "ADMINISTRATIVO" | "JEFE_CARRERA" | "SECRETARIA" | "SEC_TECNICA";
 export type Status = "PENDIENTE" | "EN_REVISION" | "OBSERVADO" | "RECHAZADO" | "DEVUELTO" | "APROBADO" | "FINALIZADO";
 export type EstadoSolicitud = "creada" | "en_verificacion" | "aprobada_jefe" | "en_secretaria" | "finalizada" | "rechazada";
-export type Carrera = "Arquitectura" | "Lic. en DiseÒo de Interiores" | "DiseÒo Industrial" | "Lic. en GestiÛn Eficiente de la EnergÌa";
+export type Carrera = "Arquitectura" | "Lic. en Dise√±o de Interiores" | "Dise√±o Industrial" | "Lic. en Gesti√≥n Eficiente de la Energ√≠a";
 export type Regimen = "Semestral" | "Anual";
 
 export interface AlumnoPropuesto {
@@ -88,7 +88,6 @@ interface TramitesContextType {
 }
 
 type GenericRow = Record<string, unknown>;
-type RolSupabase = "docente" | "administrativo" | "jefe_carrera" | "secretaria";
 
 const TramitesContext = createContext<TramitesContextType | undefined>(undefined);
 
@@ -105,16 +104,14 @@ function getString(row: GenericRow, keys: string[], fallback = ""): string {
   return fallback;
 }
 
-function getNumber(row: GenericRow, keys: string[], fallback = 0): number {
-  for (const key of keys) {
-    const value = row[key];
-    if (typeof value === "number" && Number.isFinite(value)) return value;
-    if (typeof value === "string" && value.trim()) {
-      const parsed = Number(value);
-      if (Number.isFinite(parsed)) return parsed;
-    }
-  }
-  return fallback;
+function splitNombreCompleto(nombreCompleto: string) {
+  const normalized = nombreCompleto.trim().replace(/\s+/g, " ");
+  if (!normalized) return { nombre: "", apellido: "" };
+  const parts = normalized.split(" ");
+  if (parts.length === 1) return { nombre: parts[0], apellido: "" };
+  const apellido = parts.slice(-1).join(" ");
+  const nombre = parts.slice(0, -1).join(" ");
+  return { nombre, apellido };
 }
 
 function normalizeEstadoSolicitud(raw: string): EstadoSolicitud {
@@ -133,6 +130,16 @@ function estadoToStatus(estado: EstadoSolicitud): Status {
   if (estado === "rechazada") return "RECHAZADO";
   if (estado === "en_verificacion" || estado === "aprobada_jefe") return "EN_REVISION";
   return "PENDIENTE";
+}
+
+function mapEstadoToFase(estado: EstadoSolicitud): number {
+  if (estado === "creada") return 2;
+  if (estado === "en_verificacion") return 3;
+  if (estado === "aprobada_jefe") return 4;
+  if (estado === "en_secretaria") return 5;
+  if (estado === "finalizada") return 9;
+  if (estado === "rechazada") return 3;
+  return 2;
 }
 
 const getResponsablePorFase = (fase: number): Role => {
@@ -158,52 +165,6 @@ const getResponsablePorFase = (fase: number): Role => {
   }
 };
 
-function mapEstadoToFase(estado: EstadoSolicitud): number {
-  if (estado === "creada") return 2;
-  if (estado === "en_verificacion") return 3;
-  if (estado === "aprobada_jefe") return 4;
-  if (estado === "en_secretaria") return 5;
-  if (estado === "finalizada") return 9;
-  if (estado === "rechazada") return 3;
-  return 2;
-}
-
-function mapRoleToSupabase(role: Role): RolSupabase {
-  if (role === "ADMINISTRATIVO") return "administrativo";
-  if (role === "JEFE_CARRERA") return "jefe_carrera";
-  if (role === "SECRETARIA") return "secretaria";
-  return "docente";
-}
-
-function assertTransitionByRole(rol: RolSupabase, from: EstadoSolicitud, to: EstadoSolicitud) {
-  const allowed: Record<RolSupabase, Partial<Record<EstadoSolicitud, EstadoSolicitud[]>>> = {
-    docente: {
-      creada: [],
-      en_verificacion: [],
-      aprobada_jefe: [],
-      en_secretaria: [],
-      finalizada: [],
-      rechazada: [],
-    },
-    administrativo: {
-      creada: ["en_verificacion", "rechazada"],
-    },
-    jefe_carrera: {
-      en_verificacion: ["aprobada_jefe", "rechazada"],
-      en_secretaria: ["finalizada", "rechazada"],
-    },
-    secretaria: {
-      aprobada_jefe: ["en_secretaria", "rechazada"],
-      en_secretaria: ["en_secretaria", "rechazada"],
-    },
-  };
-
-  const possible = allowed[rol][from] ?? [];
-  if (!possible.includes(to)) {
-    throw new Error(`El rol ${rol} no puede cambiar el estado de ${from} a ${to}.`);
-  }
-}
-
 function buildEvento(actor: string, rol: Role, accion: string, comentario?: string, tipo: Evento["tipo"] = "USUARIO"): Evento {
   return {
     id: createId("evt"),
@@ -213,26 +174,6 @@ function buildEvento(actor: string, rol: Role, accion: string, comentario?: stri
     accion,
     comentario,
     tipo,
-  };
-}
-
-function buildEstadoByNextPhase(nextPhase: number, currentEstado: EstadoSolicitud): EstadoSolicitud {
-  if (nextPhase <= 2) return "creada";
-  if (nextPhase === 3) return "en_verificacion";
-  if (nextPhase === 4) return "aprobada_jefe";
-  if (nextPhase >= 5 && nextPhase <= 8) return "en_secretaria";
-  if (nextPhase >= 9) return "finalizada";
-  return currentEstado;
-}
-
-function mapRowToAlumno(row: GenericRow): AlumnoPropuesto {
-  const sexoRaw = getString(row, ["sexo_gramatical", "sexo", "genero"], "M").toUpperCase();
-  const sexoGramatical: "F" | "M" = sexoRaw === "F" ? "F" : "M";
-
-  return {
-    nombreCompleto: getString(row, ["nombre_completo", "alumno_nombre", "nombre"], ""),
-    dni: getString(row, ["dni", "documento", "nro_dni"], ""),
-    sexoGramatical,
   };
 }
 
@@ -255,7 +196,6 @@ export const TramitesProvider: React.FC<{ children: ReactNode }> = ({ children }
       leida: false,
       ...data,
     };
-
     setNotificaciones((prev) => [notif, ...prev]);
   };
 
@@ -271,75 +211,76 @@ export const TramitesProvider: React.FC<{ children: ReactNode }> = ({ children }
 
   const mapRowsToTramites = (
     solicitudes: GenericRow[],
-    alumnosRows: GenericRow[],
+    solicitudAlumnosRows: GenericRow[],
+    alumnosCatalogRows: GenericRow[],
     documentosRows: GenericRow[],
+    asignaturasRows: GenericRow[],
   ): Tramite[] => {
     return solicitudes.map((row) => {
       const idSolicitud = getString(row, ["id_solicitud", "id"], "");
       const estadoSolicitud = normalizeEstadoSolicitud(getString(row, ["estado"], "creada"));
-      const faseActualRaw = getNumber(row, ["fase_actual"], 0);
-      const faseActual = faseActualRaw > 0 ? faseActualRaw : mapEstadoToFase(estadoSolicitud);
-      const alumnos = alumnosRows
-        .filter((alumno) => getString(alumno, ["id_solicitud"]) === idSolicitud)
-        .map(mapRowToAlumno);
+      const faseActual = mapEstadoToFase(estadoSolicitud);
+      const idAsignatura = getString(row, ["id_asignatura"], "");
+      const asignatura = asignaturasRows.find((item) => getString(item, ["id_asignatura"]) === idAsignatura);
+
+      const alumnos = solicitudAlumnosRows
+        .filter((link) => getString(link, ["id_solicitud"]) === idSolicitud)
+        .map((link) => {
+          const idAlumno = getString(link, ["id_alumno"], "");
+          const alumno = alumnosCatalogRows.find((item) => getString(item, ["id_alumno"]) === idAlumno);
+          if (!alumno) return null;
+
+          const nombre = getString(alumno, ["nombre"], "");
+          const apellido = getString(alumno, ["apellido"], "");
+          const nombreCompleto = `${nombre} ${apellido}`.trim();
+
+          return {
+            nombreCompleto,
+            dni: getString(alumno, ["dni"], ""),
+            sexoGramatical: "M" as const,
+          };
+        })
+        .filter((item): item is AlumnoPropuesto => Boolean(item));
 
       const documentos = documentosRows
         .filter((doc) => getString(doc, ["id_solicitud"]) === idSolicitud)
         .map((doc) => ({
           id: getString(doc, ["id_documento", "id"], createId("doc")),
-          nombre: getString(doc, ["archivo_nombre", "nombre_archivo", "nombre"], "Documento"),
-          tipo: (getString(doc, ["tipo_documento", "tipo"], "OTRO") as Documento["tipo"]),
-          fecha: getString(doc, ["creado_en", "created_at"], new Date().toISOString()),
-          url: getString(doc, ["url"], "#"),
+          nombre: `${getString(doc, ["tipo"], "Documento")}.pdf`,
+          tipo: (getString(doc, ["tipo"], "OTRO") as Documento["tipo"]),
+          fecha: getString(doc, ["fecha_subida", "created_at"], new Date().toISOString()),
+          url: getString(doc, ["url_archivo", "url"], "#"),
         }));
 
-      const historialData = row.historial_json;
-      const historial: Evento[] = Array.isArray(historialData)
-        ? (historialData as GenericRow[]).map((evt) => ({
-            id: getString(evt, ["id"], createId("evt")),
-            fecha: getString(evt, ["fecha"], new Date().toISOString()),
-            actor: getString(evt, ["actor"], "Sistema"),
-            rol: (getString(evt, ["rol"], "DOCENTE_RESPONSABLE") as Role),
-            accion: getString(evt, ["accion"], "ActualizaciÛn"),
-            comentario: getString(evt, ["comentario"]),
-            tipo: (getString(evt, ["tipo"], "SISTEMA") as Evento["tipo"]),
-          }))
-        : [
-            buildEvento(
-              "Sistema",
-              "DOCENTE_RESPONSABLE",
-              "Solicitud creada en Supabase",
-              `Estado actual: ${estadoSolicitud}`,
-              "SISTEMA",
-            ),
-          ];
-
-      const materia = getString(row, ["materia", "asignatura"], "");
+      const materia = getString(asignatura ?? {}, ["nombre"], "");
+      const carrera = getString(asignatura ?? {}, ["carrera"], "Arquitectura") as Carrera;
+      const anioCarrera = getString(asignatura ?? {}, ["anio"], "");
+      const regimen = getString(asignatura ?? {}, ["regimen"], "Semestral") as Regimen;
       const fechaSolicitud = getString(row, ["fecha_solicitud", "created_at"], new Date().toISOString());
       const createdAt = getString(row, ["created_at", "fecha_solicitud"], new Date().toISOString());
-      const updatedAt = getString(row, ["updated_at", "created_at"], createdAt);
-      const notaAprobacion = getNumber(row, ["nota_aprobacion"], 0);
 
       return {
         id: idSolicitud,
         idSolicitud,
         materia,
         alumno: alumnos[0]?.nombreCompleto ?? "",
-        nota: notaAprobacion,
-        notaAprobacion,
+        nota: 8,
+        notaAprobacion: 8,
         fechaSolicitud,
-        carrera: (getString(row, ["carrera"], "Arquitectura") as Carrera),
-        anioCarrera: getString(row, ["anio_carrera", "anio"], ""),
-        regimen: (getString(row, ["regimen"], "Semestral") as Regimen),
+        carrera,
+        anioCarrera,
+        regimen,
         alumnosPropuestos: alumnos,
         faseActual,
         estado: estadoToStatus(estadoSolicitud),
         estadoSolicitud,
         responsableActual: getResponsablePorFase(faseActual),
         documentos,
-        historial,
+        historial: [
+          buildEvento("Sistema", "DOCENTE_RESPONSABLE", "Solicitud registrada en Supabase", `Estado: ${estadoSolicitud}`, "SISTEMA"),
+        ],
         fechaCreacion: createdAt,
-        fechaUltimaActualizacion: updatedAt,
+        fechaUltimaActualizacion: createdAt,
       };
     });
   };
@@ -347,7 +288,7 @@ export const TramitesProvider: React.FC<{ children: ReactNode }> = ({ children }
   const loadTramites = async () => {
     if (!hasSupabaseConfig) {
       setTramites([]);
-      setError("Supabase no est· configurado. Defina VITE_SUPABASE_PROJECT_ID y VITE_SUPABASE_ANON_KEY.");
+      setError("Supabase no est√° configurado. Defina VITE_SUPABASE_PROJECT_ID y VITE_SUPABASE_ANON_KEY.");
       return;
     }
 
@@ -366,31 +307,61 @@ export const TramitesProvider: React.FC<{ children: ReactNode }> = ({ children }
 
       const solicitudes = (solicitudesData ?? []) as GenericRow[];
       const solicitudIds = solicitudes.map((row) => getString(row, ["id_solicitud", "id"], "")).filter(Boolean);
+      const asignaturaIds = solicitudes.map((row) => getString(row, ["id_asignatura"], "")).filter(Boolean);
 
-      let alumnosRows: GenericRow[] = [];
+      let solicitudAlumnosRows: GenericRow[] = [];
+      let alumnosCatalogRows: GenericRow[] = [];
       let documentosRows: GenericRow[] = [];
+      let asignaturasRows: GenericRow[] = [];
 
       if (solicitudIds.length > 0) {
-        const [alumnosRes, documentosRes] = await Promise.all([
+        const [solicitudAlumnosRes, documentosRes] = await Promise.all([
           supabase.from("solicitud_alumnos").select("*").in("id_solicitud", solicitudIds),
           supabase.from("documentos").select("*").in("id_solicitud", solicitudIds),
         ]);
 
-        if (alumnosRes.error) {
-          throw new Error(`No se pudo consultar solicitud_alumnos: ${alumnosRes.error.message}`);
+        if (solicitudAlumnosRes.error) {
+          throw new Error(`No se pudo consultar solicitud_alumnos: ${solicitudAlumnosRes.error.message}`);
         }
 
         if (documentosRes.error) {
           throw new Error(`No se pudo consultar documentos: ${documentosRes.error.message}`);
         }
 
-        alumnosRows = (alumnosRes.data ?? []) as GenericRow[];
+        solicitudAlumnosRows = (solicitudAlumnosRes.data ?? []) as GenericRow[];
         documentosRows = (documentosRes.data ?? []) as GenericRow[];
+
+        const alumnoIds = solicitudAlumnosRows.map((row) => getString(row, ["id_alumno"], "")).filter(Boolean);
+        if (alumnoIds.length > 0) {
+          const { data: alumnosData, error: alumnosError } = await supabase
+            .from("alumnos")
+            .select("*")
+            .in("id_alumno", alumnoIds);
+
+          if (alumnosError) {
+            throw new Error(`No se pudo consultar alumnos: ${alumnosError.message}`);
+          }
+
+          alumnosCatalogRows = (alumnosData ?? []) as GenericRow[];
+        }
       }
 
-      setTramites(mapRowsToTramites(solicitudes, alumnosRows, documentosRows));
+      if (asignaturaIds.length > 0) {
+        const { data: asignaturasData, error: asignaturasError } = await supabase
+          .from("asignaturas")
+          .select("*")
+          .in("id_asignatura", asignaturaIds);
+
+        if (asignaturasError) {
+          throw new Error(`No se pudo consultar asignaturas: ${asignaturasError.message}`);
+        }
+
+        asignaturasRows = (asignaturasData ?? []) as GenericRow[];
+      }
+
+      setTramites(mapRowsToTramites(solicitudes, solicitudAlumnosRows, alumnosCatalogRows, documentosRows, asignaturasRows));
     } catch (loadError) {
-      const message = loadError instanceof Error ? loadError.message : "No se pudieron cargar los tr·mites.";
+      const message = loadError instanceof Error ? loadError.message : "No se pudieron cargar los tr√°mites.";
       setError(message);
       setTramites([]);
     } finally {
@@ -403,13 +374,11 @@ export const TramitesProvider: React.FC<{ children: ReactNode }> = ({ children }
   }, []);
 
   const resolveDocenteId = async () => {
-    if (user.idDocente?.trim()) {
-      return user.idDocente;
-    }
+    if (user.idDocente?.trim()) return user.idDocente;
 
     const dni = user.dni.replace(/\D/g, "");
     if (!dni) {
-      throw new Error("No se pudo resolver id_docente: usuario sin DNI v·lido.");
+      throw new Error("No se pudo resolver id_docente: usuario sin DNI v√°lido.");
     }
 
     const { data, error: docenteError } = await supabase
@@ -420,15 +389,91 @@ export const TramitesProvider: React.FC<{ children: ReactNode }> = ({ children }
       .maybeSingle();
 
     if (docenteError || !data) {
-      throw new Error("No se encontrÛ id_docente para el usuario autenticado.");
+      throw new Error(`No se encontr√≥ id_docente para el usuario autenticado. ${docenteError?.message ?? ""}`.trim());
     }
 
-    const docenteId = getString(data as GenericRow, ["id_docente"], "");
-    if (!docenteId) {
-      throw new Error("El registro de docente no contiene id_docente v·lido.");
+    return getString(data as GenericRow, ["id_docente"], "");
+  };
+
+  const resolveOrCreateAsignaturaId = async (data: {
+    carrera: Carrera;
+    anioCarrera: string;
+    materia: string;
+    regimen: Regimen;
+  }) => {
+    const { data: existing, error: selectError } = await supabase
+      .from("asignaturas")
+      .select("id_asignatura")
+      .eq("nombre", data.materia)
+      .eq("carrera", data.carrera)
+      .eq("anio", data.anioCarrera)
+      .eq("regimen", data.regimen)
+      .limit(1)
+      .maybeSingle();
+
+    if (selectError) {
+      throw new Error(`No se pudo consultar asignaturas: ${selectError.message}`);
     }
 
-    return docenteId;
+    if (existing) {
+      return getString(existing as GenericRow, ["id_asignatura"], "");
+    }
+
+    const { data: inserted, error: insertError } = await supabase
+      .from("asignaturas")
+      .insert({
+        nombre: data.materia,
+        carrera: data.carrera,
+        anio: data.anioCarrera,
+        regimen: data.regimen,
+        created_at: new Date().toISOString(),
+      })
+      .select("id_asignatura")
+      .single();
+
+    if (insertError || !inserted) {
+      throw new Error(`No se pudo crear asignatura: ${insertError?.message ?? "sin detalle"}`);
+    }
+
+    return getString(inserted as GenericRow, ["id_asignatura"], "");
+  };
+
+  const resolveOrCreateAlumnoId = async (alumno: AlumnoPropuesto) => {
+    const dni = alumno.dni.replace(/\D/g, "");
+    const { nombre, apellido } = splitNombreCompleto(alumno.nombreCompleto);
+
+    const { data: existing, error: selectError } = await supabase
+      .from("alumnos")
+      .select("id_alumno")
+      .eq("dni", dni)
+      .limit(1)
+      .maybeSingle();
+
+    if (selectError) {
+      throw new Error(`No se pudo consultar alumnos: ${selectError.message}`);
+    }
+
+    if (existing) {
+      return getString(existing as GenericRow, ["id_alumno"], "");
+    }
+
+    const { data: inserted, error: insertError } = await supabase
+      .from("alumnos")
+      .insert({
+        nombre,
+        apellido,
+        dni,
+        email: `alumno.${dni}@sin-email.local`,
+        created_at: new Date().toISOString(),
+      })
+      .select("id_alumno")
+      .single();
+
+    if (insertError || !inserted) {
+      throw new Error(`No se pudo crear alumno: ${insertError?.message ?? "sin detalle"}`);
+    }
+
+    return getString(inserted as GenericRow, ["id_alumno"], "");
   };
 
   const crearTramite = async (data: {
@@ -440,7 +485,7 @@ export const TramitesProvider: React.FC<{ children: ReactNode }> = ({ children }
     alumnosPropuestos: AlumnoPropuesto[];
   }) => {
     if (!hasSupabaseConfig) {
-      throw new Error("Supabase no est· configurado.");
+      throw new Error("Supabase no est√° configurado.");
     }
 
     if (data.alumnosPropuestos.length === 0) {
@@ -448,28 +493,22 @@ export const TramitesProvider: React.FC<{ children: ReactNode }> = ({ children }
     }
 
     if (data.alumnosPropuestos.length > 2) {
-      throw new Error("Una solicitud puede tener m·ximo 2 alumnos.");
+      throw new Error("Una solicitud puede tener m√°ximo 2 alumnos.");
     }
 
     const idDocente = await resolveDocenteId();
-
-    const payload = {
-      id_docente: idDocente,
-      carrera: data.carrera,
-      anio_carrera: data.anioCarrera,
-      asignatura: data.materia,
-      regimen: data.regimen,
-      nota_aprobacion: data.notaAprobacion,
-      estado: "creada" as EstadoSolicitud,
-      fase_actual: 2,
-      fecha_solicitud: new Date().toISOString(),
-      created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
-    };
+    const idAsignatura = await resolveOrCreateAsignaturaId(data);
 
     const { data: insertedSolicitud, error: insertSolicitudError } = await supabase
       .from("solicitud_ayudante")
-      .insert(payload)
+      .insert({
+        fecha_solicitud: new Date().toISOString(),
+        estado: "creada",
+        id_docente: idDocente,
+        id_asignatura: idAsignatura,
+        observaciones: `Solicitud creada desde portal. Nota declarada: ${data.notaAprobacion}`,
+        created_at: new Date().toISOString(),
+      })
       .select("id_solicitud")
       .single();
 
@@ -479,23 +518,24 @@ export const TramitesProvider: React.FC<{ children: ReactNode }> = ({ children }
 
     const idSolicitud = getString(insertedSolicitud as GenericRow, ["id_solicitud"], "");
 
-    const alumnosPayload = data.alumnosPropuestos.map((alumno) => ({
-      id_solicitud: idSolicitud,
-      nombre_completo: alumno.nombreCompleto,
-      dni: alumno.dni,
-      sexo_gramatical: alumno.sexoGramatical,
-      created_at: new Date().toISOString(),
-    }));
+    const linksPayload = [] as Array<{ id_solicitud: string; id_alumno: string; created_at: string }>;
+    for (const alumno of data.alumnosPropuestos) {
+      const idAlumno = await resolveOrCreateAlumnoId(alumno);
+      linksPayload.push({
+        id_solicitud: idSolicitud,
+        id_alumno: idAlumno,
+        created_at: new Date().toISOString(),
+      });
+    }
 
-    const { error: insertAlumnosError } = await supabase.from("solicitud_alumnos").insert(alumnosPayload);
-
-    if (insertAlumnosError) {
-      throw new Error(`La solicitud se creÛ, pero fallÛ el alta de alumnos en solicitud_alumnos: ${insertAlumnosError.message}`);
+    const { error: insertLinksError } = await supabase.from("solicitud_alumnos").insert(linksPayload);
+    if (insertLinksError) {
+      throw new Error(`La solicitud se cre√≥, pero fall√≥ el v√≠nculo en solicitud_alumnos: ${insertLinksError.message}`);
     }
 
     crearNotificacion({
       tipo: "info",
-      titulo: "Nuevo tr·mite para verificaciÛn",
+      titulo: "Nuevo tr√°mite para verificaci√≥n",
       mensaje: `${idSolicitud}: revisar solicitud de ${data.carrera} - ${data.anioCarrera}.`,
       tramiteId: idSolicitud,
       rolDestino: "ADMINISTRATIVO",
@@ -505,8 +545,8 @@ export const TramitesProvider: React.FC<{ children: ReactNode }> = ({ children }
     await emailService.sendNotification(
       "admin@uni.edu.ar",
       "ADMINISTRATIVO",
-      `Nuevo tr·mite de AyudantÌa: ${idSolicitud}`,
-      `Se creÛ una nueva solicitud para ${data.materia} (${data.carrera} - ${data.anioCarrera}).`,
+      `Nuevo tr√°mite de Ayudant√≠a: ${idSolicitud}`,
+      `Se cre√≥ una nueva solicitud para ${data.materia} (${data.carrera} - ${data.anioCarrera}).`,
     );
 
     await loadTramites();
@@ -514,31 +554,23 @@ export const TramitesProvider: React.FC<{ children: ReactNode }> = ({ children }
 
   const avanzarFase = async (id: string, accion: string, comentario?: string, _nuevoDoc?: Documento) => {
     const tramite = tramites.find((t) => t.id === id || t.idSolicitud === id);
-    if (!tramite) {
-      throw new Error("No se encontrÛ el tr·mite a actualizar.");
-    }
+    if (!tramite) throw new Error("No se encontr√≥ el tr√°mite a actualizar.");
 
     if (tramite.estadoSolicitud === "finalizada" || tramite.estadoSolicitud === "rechazada") {
-      throw new Error("El tr·mite ya est· cerrado y no admite cambios.");
+      throw new Error("El tr√°mite ya est√° cerrado y no admite cambios.");
     }
 
-    if (tramite.responsableActual !== rolActivo) {
-      throw new Error("El rol actual no est· habilitado para esta acciÛn.");
-    }
-
-    const nextPhase = Math.min(tramite.faseActual + 1, 9);
-    const nextEstado = buildEstadoByNextPhase(nextPhase, tramite.estadoSolicitud);
-
-    if (nextEstado !== tramite.estadoSolicitud) {
-      assertTransitionByRole(mapRoleToSupabase(rolActivo), tramite.estadoSolicitud, nextEstado);
-    }
+    let nextEstado: EstadoSolicitud = tramite.estadoSolicitud;
+    if (tramite.estadoSolicitud === "creada") nextEstado = "en_verificacion";
+    else if (tramite.estadoSolicitud === "en_verificacion") nextEstado = "aprobada_jefe";
+    else if (tramite.estadoSolicitud === "aprobada_jefe") nextEstado = "en_secretaria";
+    else if (tramite.estadoSolicitud === "en_secretaria") nextEstado = "finalizada";
 
     const { error: updateError } = await supabase
       .from("solicitud_ayudante")
       .update({
-        fase_actual: nextPhase,
         estado: nextEstado,
-        updated_at: new Date().toISOString(),
+        observaciones: comentario?.trim() || null,
       })
       .eq("id_solicitud", tramite.idSolicitud);
 
@@ -548,92 +580,45 @@ export const TramitesProvider: React.FC<{ children: ReactNode }> = ({ children }
 
     crearNotificacion({
       tipo: "info",
-      titulo: "Tr·mite actualizado",
+      titulo: "Tr√°mite actualizado",
       mensaje: `${id}: ${accion}. Estado actual: ${nextEstado}.`,
       tramiteId: id,
-      rolDestino: getResponsablePorFase(nextPhase),
+      rolDestino: getResponsablePorFase(mapEstadoToFase(nextEstado)),
     });
-
-    if (comentario?.trim()) {
-      crearNotificacion({
-        tipo: "info",
-        titulo: "Comentario de gestiÛn",
-        mensaje: comentario,
-        tramiteId: id,
-        rolDestino: getResponsablePorFase(nextPhase),
-      });
-    }
 
     await loadTramites();
   };
 
   const rechazarTramite = async (id: string, motivo: string) => {
     const tramite = tramites.find((t) => t.id === id || t.idSolicitud === id);
-    if (!tramite) {
-      throw new Error("No se encontrÛ el tr·mite a rechazar.");
-    }
-
-    assertTransitionByRole(mapRoleToSupabase(rolActivo), tramite.estadoSolicitud, "rechazada");
+    if (!tramite) throw new Error("No se encontr√≥ el tr√°mite a rechazar.");
 
     const { error: updateError } = await supabase
       .from("solicitud_ayudante")
-      .update({
-        estado: "rechazada",
-        updated_at: new Date().toISOString(),
-      })
+      .update({ estado: "rechazada", observaciones: motivo })
       .eq("id_solicitud", tramite.idSolicitud);
 
     if (updateError) {
       throw new Error(`No se pudo marcar como rechazada la solicitud: ${updateError.message}`);
     }
 
-    crearNotificacion({
-      tipo: "alerta",
-      titulo: `Tr·mite rechazado: ${id}`,
-      mensaje: `Motivo: ${motivo}`,
-      tramiteId: id,
-      rolDestino: "DOCENTE_RESPONSABLE",
-      destinatarioEmail: "docente@uni.edu.ar",
-    });
-
-    await emailService.sendNotification("docente@uni.edu.ar", "DOCENTE_RESPONSABLE", `Tr·mite rechazado: ${id}`, `Motivo: ${motivo}`);
+    await emailService.sendNotification("docente@uni.edu.ar", "DOCENTE_RESPONSABLE", `Tr√°mite rechazado: ${id}`, `Motivo: ${motivo}`);
 
     await loadTramites();
   };
 
-  const devolverTramite = async (id: string, observaciones: string, faseDestino: number) => {
+  const devolverTramite = async (id: string, observaciones: string, _faseDestino: number) => {
     const tramite = tramites.find((t) => t.id === id || t.idSolicitud === id);
-    if (!tramite) {
-      throw new Error("No se encontrÛ el tr·mite a devolver.");
-    }
-
-    if (!["ADMINISTRATIVO", "JEFE_CARRERA", "SECRETARIA"].includes(rolActivo)) {
-      throw new Error("Solo roles administrativos pueden devolver solicitudes.");
-    }
-
-    const faseCorregida = Math.max(2, Math.min(faseDestino, 8));
-    const estadoDestino = buildEstadoByNextPhase(faseCorregida, tramite.estadoSolicitud);
+    if (!tramite) throw new Error("No se encontr√≥ el tr√°mite a devolver.");
 
     const { error: updateError } = await supabase
       .from("solicitud_ayudante")
-      .update({
-        fase_actual: faseCorregida,
-        estado: estadoDestino,
-        updated_at: new Date().toISOString(),
-      })
+      .update({ estado: "creada", observaciones })
       .eq("id_solicitud", tramite.idSolicitud);
 
     if (updateError) {
-      throw new Error(`No se pudo devolver el tr·mite: ${updateError.message}`);
+      throw new Error(`No se pudo devolver el tr√°mite: ${updateError.message}`);
     }
-
-    crearNotificacion({
-      tipo: "alerta",
-      titulo: `Tr·mite devuelto: ${id}`,
-      mensaje: observaciones,
-      tramiteId: id,
-      rolDestino: getResponsablePorFase(faseCorregida),
-    });
 
     await loadTramites();
   };
@@ -668,6 +653,5 @@ export const useTramites = () => {
   if (!context) {
     throw new Error("useTramites must be used within TramitesProvider");
   }
-
   return context;
 };

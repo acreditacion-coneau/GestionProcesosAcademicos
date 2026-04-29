@@ -247,9 +247,11 @@ export function UserProvider({ children }: { children: ReactNode }) {
     }
 
     let docenteSupabase: User | null = null;
+    let loginErrorMessage = "";
     try {
       docenteSupabase = await loginByDni(normalizedDni);
     } catch (error) {
+      loginErrorMessage = error instanceof Error ? error.message : "No se pudo validar el DNI en Supabase.";
       console.warn("No se pudo consultar Supabase en login por DNI:", error);
     }
     const docente = docenteSupabase ?? docenteFallback;
@@ -257,7 +259,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
     if (!docente) {
       return {
         ok: false,
-        error: "DNI no encontrado en la tabla docentes (o la política RLS no permite leer ese registro).",
+        error: loginErrorMessage || "DNI no encontrado en la tabla docentes (o la política RLS no permite leer ese registro).",
       };
     }
 

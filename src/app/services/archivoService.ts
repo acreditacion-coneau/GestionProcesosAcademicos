@@ -1,4 +1,4 @@
-import { hasSupabaseConfig, supabase } from "../../lib/supabaseClient";
+Ôªøimport { hasSupabaseConfig, supabase } from "../../lib/supabaseClient";
 
 export type TipoDocumentoArchivo = "FICHA" | "INFORME" | "RF_INICIO" | "RF_CIERRE" | "OTRO";
 
@@ -29,7 +29,7 @@ function isPdfFile(blob: Blob, fileName: string) {
 
 export async function archiveDocument(params: ArchiveParams): Promise<ArchivedDocumentResult> {
   if (!hasSupabaseConfig) {
-    throw new Error("Supabase no est· configurado. No se puede subir el documento.");
+    throw new Error("Supabase no est√° configurado. No se puede subir el documento.");
   }
 
   if (!isPdfFile(params.blob, params.fileName)) {
@@ -55,16 +55,13 @@ export async function archiveDocument(params: ArchiveParams): Promise<ArchivedDo
 
   const { error: insertError } = await supabase.from("documentos").insert({
     id_solicitud: params.idSolicitud,
-    tipo_documento: params.tipo,
-    archivo_nombre: params.fileName,
-    storage_path: storagePath,
-    url: publicUrl,
-    actor: params.actor,
-    creado_en: new Date().toISOString(),
+    tipo: params.tipo,
+    url_archivo: publicUrl,
+    fecha_subida: new Date().toISOString(),
   });
 
   if (insertError) {
-    throw new Error(`El PDF se subiÛ al bucket pero fallÛ el registro en tabla documentos: ${insertError.message}`);
+    throw new Error(`El PDF se subi√≥ al bucket pero fall√≥ el registro en tabla documentos: ${insertError.message}`);
   }
 
   return {

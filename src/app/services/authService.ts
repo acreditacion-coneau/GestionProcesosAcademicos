@@ -52,11 +52,18 @@ function getString(row: GenericRow, keys: string[], fallback = ""): string {
 }
 
 function normalizeRole(rawRole: string): Role {
-  const role = rawRole.toUpperCase().replace(/\s+/g, "_");
+  const role = rawRole
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
   const map: Record<string, Role> = {
     DOCENTE: "DOCENTE",
     DOCENTE_RESPONSABLE: "DOCENTE_RESPONSABLE",
     RESPONSABLE_CATEDRA: "DOCENTE_RESPONSABLE",
+    RESPONSABLE_DE_CATEDRA: "DOCENTE_RESPONSABLE",
+    RESPONSABLEDECATEDRA: "DOCENTE_RESPONSABLE",
     RESPONSABLE: "DOCENTE_RESPONSABLE",
     JEFE_CARRERA: "JEFE_CARRERA",
     JEFE_DE_CARRERA: "JEFE_CARRERA",
@@ -152,7 +159,11 @@ function mapRpcRowToUser(row: GenericRow): User | null {
 
 async function loginByDniRpc(dni: string): Promise<User | null> {
   const { data, error } = await supabase.rpc("login_docente_by_dni", { p_dni: dni });
-  if (error || !Array.isArray(data) || data.length === 0) {
+  if (error) {
+    throw new Error(`No se pudo ejecutar login seguro por RPC: ${error.message}`);
+  }
+
+  if (!Array.isArray(data) || data.length === 0) {
     return null;
   }
 
@@ -197,6 +208,67 @@ async function resolveRoleFromSistema(user: User): Promise<Role | null> {
   }
 
   return null;
+}
+
+function rolePriority(role: Role): number {
+  const priority: Record<Role, number> = {
+    DOCENTE: 1,
+    DOCENTE_RESPONSABLE: 2,
+    ADMINISTRATIVO: 3,
+    SECRETARIA: 4,
+    SEC_TECNICA: 5,
+    JEFE_CARRERA: 6,
+  };
+  return priority[role] ?? 0;
+}
+
+async function resolveRolesForDocentes(docentes: User[]): Promise<Map<string, Role>> {
+  const roleByDocenteId = new Map<string, Role>();
+  const ids = docentes.map((d) => d.idDocente?.trim() ?? "").filter(Boolean);
+  if (ids.length === 0) return roleByDocenteId;
+
+  const uniqueIds = Array.from(new Set(ids));
+
+  for (const tableName of rolesTableCandidates) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), QUERY_TIMEOUT_MS);
+    try {
+      const { data, error } = await supabase
+        .from(tableName)
+        .select("*")
+        .in("id_docente", uniqueIds)
+        .abortSignal(controller.signal);
+
+      if (error) {
+        if (isRecoverableError(error)) continue;
+        continue;
+      }
+
+      for (const raw of (data ?? []) as GenericRow[]) {
+        const idDocente = getString(raw, ["id_docente", "docente_id"], "").trim();
+        if (!idDocente) continue;
+        const roleRaw = getString(raw, ["rol_sistema", "rol", "role", "perfil"], "");
+        if (!roleRaw) continue;
+        const parsedRole = normalizeRole(roleRaw);
+        const current = roleByDocenteId.get(idDocente);
+        if (!current || rolePriority(parsedRole) > rolePriority(current)) {
+          roleByDocenteId.set(idDocente, parsedRole);
+        }
+      }
+
+      if (roleByDocenteId.size > 0) {
+        return roleByDocenteId;
+      }
+    } catch (error) {
+      if (!isRecoverableError(error)) {
+        console.warn(`No se pudo resolver roles masivos en ${tableName}:`, error);
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  return roleByDocenteId;
 }
 
 function isRecoverableError(error: unknown): boolean {
@@ -317,11 +389,13 @@ export async function loginByDni(dni: string): Promise<User | null> {
 
   const cleanDni = dni.replace(/\D/g, "");
   if (!cleanDni) return null;
+  let rpcErrorMessage = "";
 
   try {
     const userFromRpc = await loginByDniRpc(cleanDni);
     if (userFromRpc) return userFromRpc;
   } catch (error) {
+    rpcErrorMessage = error instanceof Error ? error.message : "Fallo desconocido en RPC de login.";
     console.warn("RPC login_docente_by_dni no disponible o falló:", error);
   }
 
@@ -338,7 +412,12 @@ export async function loginByDni(dni: string): Promise<User | null> {
 
   const docentes = await getProfesoresFromSupabase();
   const docente = docentes.find((item) => item.dni === cleanDni) ?? null;
-  if (!docente) return null;
+  if (!docente) {
+    if (rpcErrorMessage) {
+      throw new Error(rpcErrorMessage);
+    }
+    return null;
+  }
   const roleFromSistema = await resolveRoleFromSistema(docente);
   if (roleFromSistema) {
     return { ...docente, rol: roleFromSistema };
@@ -384,5 +463,14 @@ export async function getProfesoresFromSupabase(): Promise<User[]> {
     }
   }
 
-  return dedupeUsers(collected);
+  const uniqueDocentes = dedupeUsers(collected);
+  const rolesByDocente = await resolveRolesForDocentes(uniqueDocentes);
+
+  return uniqueDocentes.map((docente) => {
+    const idDocente = docente.idDocente?.trim() ?? "";
+    if (!idDocente) return docente;
+    const role = rolesByDocente.get(idDocente);
+    if (!role) return docente;
+    return { ...docente, rol: role };
+  });
 }
