@@ -10,12 +10,23 @@ const QUERY_TIMEOUT_MS = Number(import.meta.env.VITE_SUPABASE_TIMEOUT_MS ?? 2500
 const configuredUsersTable = (import.meta.env.VITE_SUPABASE_USERS_TABLE ?? "").trim();
 const configuredDniColumn = (import.meta.env.VITE_SUPABASE_DNI_COLUMN ?? "").trim();
 
-const tableCandidates = (configuredUsersTable ? [configuredUsersTable] : DEFAULT_TABLES).filter(
-  (table, idx, arr): table is string => Boolean(table) && arr.indexOf(table) === idx,
-);
-const dniColumnCandidates = (configuredDniColumn ? [configuredDniColumn] : DEFAULT_DNI_COLUMNS).filter(
-  (column, idx, arr): column is string => Boolean(column) && arr.indexOf(column) === idx,
-);
+function uniqueNonEmpty(values: string[]): string[] {
+  return values.filter((value, idx, arr): value is string => Boolean(value) && arr.indexOf(value) === idx);
+}
+
+const tableCandidates = uniqueNonEmpty([
+  configuredUsersTable,
+  configuredUsersTable.toLowerCase(),
+  configuredUsersTable.toUpperCase(),
+  ...DEFAULT_TABLES,
+]);
+
+const dniColumnCandidates = uniqueNonEmpty([
+  configuredDniColumn,
+  configuredDniColumn.toLowerCase(),
+  configuredDniColumn.toUpperCase(),
+  ...DEFAULT_DNI_COLUMNS,
+]);
 
 const ignoredDbCodes = new Set(["42P01", "42703", "PGRST205", "42501"]);
 
