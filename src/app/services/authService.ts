@@ -130,6 +130,35 @@ function mapRowToUser(row: GenericRow): User | null {
   };
 }
 
+function mapRpcRowToUser(row: GenericRow): User | null {
+  const dni = getString(row, ["dni"], "").replace(/\D/g, "");
+  if (!dni) return null;
+
+  const nombreCompuesto = `${getString(row, ["nombre"], "").trim()} ${getString(row, ["apellido"], "").trim()}`.trim();
+  const nombre = getString(row, ["nombre_completo"], "") || nombreCompuesto;
+  if (!nombre) return null;
+
+  return {
+    idDocente: getString(row, ["id_docente"], "") || undefined,
+    nombre,
+    dni,
+    carrera: normalizeCarrera(getString(row, ["carrera"], "Todas")),
+    cargo: normalizeCargo(getString(row, ["cargo"], "Administrativo")),
+    materia: getString(row, ["materia", "asignatura"], "-") || "-",
+    rol: normalizeRole(getString(row, ["rol_sistema", "rol"], "DOCENTE")),
+    email: getString(row, ["email"], `${dni}@faud.edu.ar`) || `${dni}@faud.edu.ar`,
+  };
+}
+
+async function loginByDniRpc(dni: string): Promise<User | null> {
+  const { data, error } = await supabase.rpc("login_docente_by_dni", { p_dni: dni });
+  if (error || !Array.isArray(data) || data.length === 0) {
+    return null;
+  }
+
+  return mapRpcRowToUser((data[0] ?? {}) as GenericRow);
+}
+
 async function resolveRoleFromSistema(user: User): Promise<Role | null> {
   if (!hasSupabaseConfig) return null;
 
@@ -288,6 +317,13 @@ export async function loginByDni(dni: string): Promise<User | null> {
 
   const cleanDni = dni.replace(/\D/g, "");
   if (!cleanDni) return null;
+
+  try {
+    const userFromRpc = await loginByDniRpc(cleanDni);
+    if (userFromRpc) return userFromRpc;
+  } catch (error) {
+    console.warn("RPC login_docente_by_dni no disponible o falló:", error);
+  }
 
   for (const tableName of tableCandidates) {
     const user = await findByDniInTable(tableName, cleanDni);
