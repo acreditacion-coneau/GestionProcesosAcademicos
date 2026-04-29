@@ -3,7 +3,7 @@ import { hasSupabaseConfig, supabase } from "../../lib/supabaseClient";
 export type TipoDocumentoArchivo = "FICHA" | "INFORME" | "RF_INICIO" | "RF_CIERRE" | "OTRO";
 
 interface ArchiveParams {
-  tramiteId: string;
+  idSolicitud: string;
   tipo: TipoDocumentoArchivo;
   fileName: string;
   blob: Blob;
@@ -13,104 +13,63 @@ interface ArchiveParams {
 interface ArchivedDocumentResult {
   url: string;
   storagePath: string;
-  source: "supabase" | "local";
+  source: "supabase";
 }
 
-const LOCAL_ARCHIVE_KEY = "tramites_documentos_archivo_local";
-const DEFAULT_BUCKET = (import.meta.env.VITE_SUPABASE_ARCHIVE_BUCKET ?? "tramites-archivo").trim();
-const ARCHIVE_TABLE = (import.meta.env.VITE_SUPABASE_ARCHIVE_TABLE ?? "tramites_documentos_archivo").trim();
+const DOCUMENTOS_BUCKET = "documentos";
 
 function sanitizeFileName(fileName: string) {
   return fileName.replace(/[^\w.\-]+/g, "_");
 }
 
-function blobToDataUrl(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(new Error("No se pudo convertir el archivo a data URL"));
-    reader.readAsDataURL(blob);
-  });
+function isPdfFile(blob: Blob, fileName: string) {
+  const normalizedName = fileName.toLowerCase();
+  return blob.type === "application/pdf" || normalizedName.endsWith(".pdf");
 }
 
-function pushLocalArchiveRecord(record: {
-  tramiteId: string;
-  tipo: TipoDocumentoArchivo;
-  actor: string;
-  fileName: string;
-  dataUrl: string;
-  archivedAt: string;
-}) {
-  const raw = localStorage.getItem(LOCAL_ARCHIVE_KEY);
-  const current = raw ? (JSON.parse(raw) as unknown[]) : [];
-  current.push(record);
-  localStorage.setItem(LOCAL_ARCHIVE_KEY, JSON.stringify(current));
-}
+export async function archiveDocument(params: ArchiveParams): Promise<ArchivedDocumentResult> {
+  if (!hasSupabaseConfig) {
+    throw new Error("Supabase no está configurado. No se puede subir el documento.");
+  }
 
-async function archiveInSupabase(params: ArchiveParams): Promise<ArchivedDocumentResult | null> {
-  if (!hasSupabaseConfig || !DEFAULT_BUCKET) return null;
+  if (!isPdfFile(params.blob, params.fileName)) {
+    throw new Error("Solo se permiten archivos PDF.");
+  }
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
   const safeFileName = sanitizeFileName(params.fileName);
-  const storagePath = `${params.tramiteId}/${timestamp}_${safeFileName}`;
+  const storagePath = `${params.idSolicitud}/${timestamp}_${safeFileName}`;
 
-  const upload = await supabase.storage
-    .from(DEFAULT_BUCKET)
+  const { error: uploadError } = await supabase.storage
+    .from(DOCUMENTOS_BUCKET)
     .upload(storagePath, params.blob, {
-      contentType: params.blob.type || "application/octet-stream",
+      contentType: "application/pdf",
       upsert: true,
     });
 
-  if (upload.error) {
-    console.warn("No se pudo archivar en Supabase Storage:", upload.error.message);
-    return null;
+  if (uploadError) {
+    throw new Error(`No se pudo subir el PDF a Supabase Storage: ${uploadError.message}`);
   }
 
-  const publicUrl = supabase.storage.from(DEFAULT_BUCKET).getPublicUrl(storagePath).data.publicUrl;
+  const publicUrl = supabase.storage.from(DOCUMENTOS_BUCKET).getPublicUrl(storagePath).data.publicUrl;
 
-  if (ARCHIVE_TABLE) {
-    const insertPayload = {
-      tramite_id: params.tramiteId,
-      tipo_documento: params.tipo,
-      archivo_nombre: params.fileName,
-      storage_path: storagePath,
-      url: publicUrl,
-      actor: params.actor,
-      creado_en: new Date().toISOString(),
-    };
-    const { error } = await supabase.from(ARCHIVE_TABLE).insert(insertPayload);
-    if (error) {
-      console.warn("No se pudo insertar metadato de archivo en tabla histÃ³rica:", error.message);
-    }
+  const { error: insertError } = await supabase.from("documentos").insert({
+    id_solicitud: params.idSolicitud,
+    tipo_documento: params.tipo,
+    archivo_nombre: params.fileName,
+    storage_path: storagePath,
+    url: publicUrl,
+    actor: params.actor,
+    creado_en: new Date().toISOString(),
+  });
+
+  if (insertError) {
+    throw new Error(`El PDF se subió al bucket pero falló el registro en tabla documentos: ${insertError.message}`);
   }
 
   return {
     url: publicUrl,
     storagePath,
     source: "supabase",
-  };
-}
-
-export async function archiveDocument(params: ArchiveParams): Promise<ArchivedDocumentResult> {
-  const supabaseResult = await archiveInSupabase(params);
-  if (supabaseResult) return supabaseResult;
-
-  const dataUrl = await blobToDataUrl(params.blob);
-  const archivedAt = new Date().toISOString();
-  const storagePath = `${params.tramiteId}/${archivedAt}_${sanitizeFileName(params.fileName)}`;
-
-  pushLocalArchiveRecord({
-    tramiteId: params.tramiteId,
-    tipo: params.tipo,
-    actor: params.actor,
-    fileName: params.fileName,
-    dataUrl,
-    archivedAt,
-  });
-
-  return {
-    url: dataUrl,
-    storagePath,
-    source: "local",
   };
 }

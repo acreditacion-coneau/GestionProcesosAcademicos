@@ -7,6 +7,7 @@ export type Carrera = "Arquitectura" | "Lic. en Diseño de Interiores" | "Diseñ
 export type Cargo = "Titular" | "Asociado" | "Adjunto" | "Auxiliar" | "Ayudante" | "Adscripto" | "Administrativo";
 
 export interface User {
+  idDocente?: string;
   nombre: string;
   dni: string;
   carrera: Carrera;

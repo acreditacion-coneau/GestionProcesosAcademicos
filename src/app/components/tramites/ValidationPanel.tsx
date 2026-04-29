@@ -57,16 +57,23 @@ export const ValidationPanel: React.FC<ValidationPanelProps> = ({ tramiteId }) =
   const [archivo, setArchivo] = useState<File | null>(null);
   const [rfNumero, setRfNumero] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState("");
 
   if (!tramite) return null;
 
   const handleAvanzar = async () => {
+    setError("");
     setIsSubmitting(true);
     try {
       let nuevoDoc: Documento | undefined = undefined;
       if (archivo) {
+        const isPdf = archivo.type === "application/pdf" || archivo.name.toLowerCase().endsWith(".pdf");
+        if (!isPdf) {
+          throw new Error("Solo se permiten archivos PDF.");
+        }
+
         const archived = await archiveDocument({
-          tramiteId: tramite.id,
+          idSolicitud: tramite.idSolicitud,
           tipo: tramite.faseActual === 2 ? "FICHA" : tramite.faseActual === 5 ? "INFORME" : "OTRO",
           fileName: archivo.name,
           blob: archivo,
@@ -84,22 +91,41 @@ export const ValidationPanel: React.FC<ValidationPanelProps> = ({ tramiteId }) =
       await avanzarFase(tramite.id, "Aprobó fase actual", observaciones, nuevoDoc);
       setObservaciones("");
       setArchivo(null);
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "No se pudo avanzar el trámite.");
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const handleRechazar = () => {
+  const handleRechazar = async () => {
     if (!observaciones) return alert("Debe ingresar un motivo para rechazar.");
-    rechazarTramite(tramite.id, observaciones);
+    setError("");
+    setIsSubmitting(true);
+    try {
+      await rechazarTramite(tramite.id, observaciones);
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "No se pudo rechazar el trámite.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleDevolver = () => {
+  const handleDevolver = async () => {
     if (!observaciones) return alert("Debe ingresar un motivo para devolver.");
-    devolverTramite(tramite.id, observaciones, tramite.faseActual - 1);
+    setError("");
+    setIsSubmitting(true);
+    try {
+      await devolverTramite(tramite.id, observaciones, tramite.faseActual - 1);
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "No se pudo devolver el trámite.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleEmitirRf = async (tipo: "Inicio" | "Cierre") => {
+    setError("");
     setIsSubmitting(true);
     try {
       let blob: Blob;
@@ -122,7 +148,7 @@ export const ValidationPanel: React.FC<ValidationPanelProps> = ({ tramiteId }) =
       downloadBlob(blob, fileName);
 
       const archived = await archiveDocument({
-        tramiteId: tramite.id,
+        idSolicitud: tramite.idSolicitud,
         tipo: tipo === "Inicio" ? "RF_INICIO" : "RF_CIERRE",
         fileName,
         blob,
@@ -138,6 +164,8 @@ export const ValidationPanel: React.FC<ValidationPanelProps> = ({ tramiteId }) =
       };
 
       await avanzarFase(tramite.id, `Emisión de RF ${tipo}`, "", nuevoDoc);
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "No se pudo emitir la resolución.");
     } finally {
       setIsSubmitting(false);
     }
@@ -169,6 +197,11 @@ export const ValidationPanel: React.FC<ValidationPanelProps> = ({ tramiteId }) =
         <AlertTriangle className="w-5 h-5 text-yellow-500 mr-2" />
         Acción Requerida - Fase {tramite.faseActual}
       </h4>
+      {error && (
+        <div className="mb-4 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
 
       {rolActivo === "ADMINISTRATIVO" && tramite.faseActual === 2 && (
         <div className="space-y-4">

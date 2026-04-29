@@ -34,6 +34,10 @@ export const NewSolicitudModal: React.FC<ModalProps> = ({ onClose }) => {
   const fueraDeTermino = diasDesdeInicio > 15;
 
   const addAlumno = () => {
+    if (alumnos.length >= 2) {
+      setError("Una solicitud puede incluir como máximo 2 alumnos.");
+      return;
+    }
     setAlumnos((prev) => [...prev, { nombreCompleto: "", dni: "", sexoGramatical: "F" }]);
   };
 
@@ -73,6 +77,11 @@ export const NewSolicitudModal: React.FC<ModalProps> = ({ onClose }) => {
       return;
     }
 
+    if (alumnosValidos.length > 2) {
+      setError("Una solicitud puede incluir como máximo 2 alumnos.");
+      return;
+    }
+
     if (alumnosValidos.length !== alumnos.length) {
       setError("Revise la lista de alumnos: hay filas incompletas.");
       return;
@@ -89,6 +98,8 @@ export const NewSolicitudModal: React.FC<ModalProps> = ({ onClose }) => {
         alumnosPropuestos: alumnosValidos,
       });
       onClose();
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : "No se pudo enviar la solicitud.");
     } finally {
       setSubmitting(false);
     }
@@ -211,7 +222,8 @@ export const NewSolicitudModal: React.FC<ModalProps> = ({ onClose }) => {
               <button
                 type="button"
                 onClick={addAlumno}
-                className="inline-flex items-center gap-1 text-sm text-blue-700 hover:text-blue-800 font-medium"
+                disabled={alumnos.length >= 2}
+                className="inline-flex items-center gap-1 text-sm text-blue-700 hover:text-blue-800 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Plus className="w-4 h-4" />
                 Agregar alumno

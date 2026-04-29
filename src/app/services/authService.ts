@@ -97,7 +97,10 @@ function mapRowToUser(row: GenericRow): User | null {
   const carrera = normalizeCarrera(getString(row, ["carrera", "departamento", "carrera_nombre"], "Todas"));
   const cargo = normalizeCargo(getString(row, ["cargo", "puesto", "categoria"], "Administrativo"));
 
+  const idDocente = getString(row, ["id_docente", "docente_id", "id"], "");
+
   return {
+    idDocente: idDocente || undefined,
     nombre,
     dni,
     carrera,
