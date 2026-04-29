@@ -11,6 +11,7 @@ interface ModalProps {
 type AlumnoForm = {
   nombreCompleto: string;
   dni: string;
+  sexoGramatical: "F" | "M";
 };
 
 const YEAR_OPTIONS = ["1ro", "2do", "3ro", "4to", "5to"];
@@ -23,7 +24,8 @@ export const NewSolicitudModal: React.FC<ModalProps> = ({ onClose }) => {
   const [anioCarrera, setAnioCarrera] = useState("");
   const [asignatura, setAsignatura] = useState(user.materia === "-" ? "" : user.materia);
   const [regimen, setRegimen] = useState<"Semestral" | "Anual">("Semestral");
-  const [alumnos, setAlumnos] = useState<AlumnoForm[]>([{ nombreCompleto: "", dni: "" }]);
+  const [notaAprobacion, setNotaAprobacion] = useState("");
+  const [alumnos, setAlumnos] = useState<AlumnoForm[]>([{ nombreCompleto: "", dni: "", sexoGramatical: "F" }]);
   const [submitting, setSubmitting] = useState(false);
 
   const fechaSolicitud = useMemo(() => format(new Date(), "dd/MM/yyyy"), []);
@@ -32,7 +34,7 @@ export const NewSolicitudModal: React.FC<ModalProps> = ({ onClose }) => {
   const fueraDeTermino = diasDesdeInicio > 15;
 
   const addAlumno = () => {
-    setAlumnos((prev) => [...prev, { nombreCompleto: "", dni: "" }]);
+    setAlumnos((prev) => [...prev, { nombreCompleto: "", dni: "", sexoGramatical: "F" }]);
   };
 
   const removeAlumno = (index: number) => {
@@ -53,11 +55,16 @@ export const NewSolicitudModal: React.FC<ModalProps> = ({ onClose }) => {
     }
 
     const alumnosValidos = alumnos
-      .map((a) => ({ nombreCompleto: a.nombreCompleto.trim(), dni: a.dni.trim() }))
+      .map((a) => ({ nombreCompleto: a.nombreCompleto.trim(), dni: a.dni.trim(), sexoGramatical: a.sexoGramatical }))
       .filter((a) => a.nombreCompleto && a.dni);
+    const nota = Number.parseFloat(notaAprobacion);
 
     if (!carrera || !anioCarrera || !asignatura.trim() || !regimen) {
       setError("Complete todos los campos obligatorios de la solicitud.");
+      return;
+    }
+    if (!Number.isFinite(nota) || nota < 8) {
+      setError("La nota de aprobación debe ser numérica y mayor o igual a 8.");
       return;
     }
 
@@ -76,8 +83,9 @@ export const NewSolicitudModal: React.FC<ModalProps> = ({ onClose }) => {
       await crearTramite({
         carrera: carrera as "Arquitectura" | "Lic. en Diseño de Interiores" | "Diseño Industrial" | "Lic. en Gestión Eficiente de la Energía",
         anioCarrera,
-        asignatura: asignatura.trim(),
+        materia: asignatura.trim(),
         regimen,
+        notaAprobacion: nota,
         alumnosPropuestos: alumnosValidos,
       });
       onClose();
@@ -182,6 +190,19 @@ export const NewSolicitudModal: React.FC<ModalProps> = ({ onClose }) => {
                 placeholder="Ej: Diseño 1"
               />
             </div>
+
+            <div className="space-y-1 md:col-span-2">
+              <label className="text-sm font-medium text-gray-700">Nota con la que aprobó la materia *</label>
+              <input
+                type="number"
+                min="8"
+                step="0.01"
+                value={notaAprobacion}
+                onChange={(e) => setNotaAprobacion(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                placeholder="Ej: 8.00"
+              />
+            </div>
           </div>
 
           <div className="border rounded-lg p-4 space-y-3">
@@ -198,7 +219,7 @@ export const NewSolicitudModal: React.FC<ModalProps> = ({ onClose }) => {
             </div>
 
             {alumnos.map((alumno, index) => (
-              <div key={`alumno-${index}`} className="grid grid-cols-1 md:grid-cols-[1fr_220px_auto] gap-3 items-end">
+              <div key={`alumno-${index}`} className="grid grid-cols-1 md:grid-cols-[1fr_220px_160px_auto] gap-3 items-end">
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-gray-600">Nombre completo</label>
                   <input
@@ -218,6 +239,17 @@ export const NewSolicitudModal: React.FC<ModalProps> = ({ onClose }) => {
                     className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
                     placeholder="Sin puntos"
                   />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-gray-600">Sexo</label>
+                  <select
+                    value={alumno.sexoGramatical}
+                    onChange={(e) => updateAlumno(index, "sexoGramatical", e.target.value as "F" | "M")}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                  >
+                    <option value="F">Femenino</option>
+                    <option value="M">Masculino</option>
+                  </select>
                 </div>
                 <button
                   type="button"

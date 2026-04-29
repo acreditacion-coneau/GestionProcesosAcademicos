@@ -81,7 +81,7 @@ export const TramiteCard: React.FC<{ tramite: Tramite }> = ({ tramite }) => {
           </h3>
           <p className="text-sm text-gray-500 flex items-center gap-4 mt-1">
             <span className="flex items-center"><User className="w-4 h-4 mr-1" /> Alumno(s): {alumnosResumen}</span>
-            <span className="flex items-center"><CheckCircle2 className="w-4 h-4 mr-1" /> Nota: {tramite.nota}</span>
+            <span className="flex items-center"><CheckCircle2 className="w-4 h-4 mr-1" /> Nota: {tramite.notaAprobacion}</span>
             <span className="flex items-center"><Clock className="w-4 h-4 mr-1" /> {diasEnFaseActual} días en fase actual</span>
           </p>
           <p className="text-xs text-gray-500 mt-1">

@@ -11,6 +11,7 @@ export type Regimen = "Semestral" | "Anual";
 export interface AlumnoPropuesto {
   nombreCompleto: string;
   dni: string;
+  sexoGramatical: "F" | "M";
 }
 
 export interface Documento {
@@ -36,6 +37,7 @@ export interface Tramite {
   materia: string;
   alumno: string;
   nota: number;
+  notaAprobacion: number;
   fechaSolicitud: string;
   carrera: Carrera;
   anioCarrera: string;
@@ -66,6 +68,7 @@ interface TramitesContextType {
     anioCarrera: string;
     materia: string;
     regimen: Regimen;
+    notaAprobacion: number;
     alumnosPropuestos: AlumnoPropuesto[];
   }) => Promise<void>;
   avanzarFase: (id: string, accion: string, comentario?: string, nuevoDoc?: Documento) => Promise<void>;
@@ -126,7 +129,8 @@ const seedTramites: Tramite[] = [
     carrera: "Arquitectura",
     anioCarrera: "2do",
     regimen: "Semestral",
-    alumnosPropuestos: [{ nombreCompleto: "Juan Pérez", dni: "40111222" }],
+    alumnosPropuestos: [{ nombreCompleto: "Juan Pérez", dni: "40111222", sexoGramatical: "M" }],
+    notaAprobacion: 9,
     faseActual: 2,
     estado: "EN_REVISION",
     responsableActual: "ADMINISTRATIVO",
@@ -153,7 +157,8 @@ const seedTramites: Tramite[] = [
     carrera: "Arquitectura",
     anioCarrera: "1ro",
     regimen: "Anual",
-    alumnosPropuestos: [{ nombreCompleto: "María Torres", dni: "38999111" }],
+    alumnosPropuestos: [{ nombreCompleto: "María Torres", dni: "38999111", sexoGramatical: "F" }],
+    notaAprobacion: 8,
     faseActual: 3,
     estado: "PENDIENTE",
     responsableActual: "JEFE_CARRERA",
@@ -229,11 +234,18 @@ export const TramitesProvider: React.FC<{ children: ReactNode }> = ({ children }
     setNotificaciones((prev) => prev.map((n) => (n.rolDestino === rol ? { ...n, leida: true } : n)));
   };
 
+  const marcarLeidasPorTramiteYRol = (tramiteId: string, rol: Role) => {
+    setNotificaciones((prev) =>
+      prev.map((n) => (n.rolDestino === rol && n.tramiteId === tramiteId && !n.leida ? { ...n, leida: true } : n)),
+    );
+  };
+
   const crearTramite = async (data: {
     carrera: Carrera;
     anioCarrera: string;
     materia: string;
     regimen: Regimen;
+    notaAprobacion: number;
     alumnosPropuestos: AlumnoPropuesto[];
   }) => {
     const primerAlumno = data.alumnosPropuestos[0];
@@ -242,7 +254,8 @@ export const TramitesProvider: React.FC<{ children: ReactNode }> = ({ children }
       id: `AYD-${new Date().getFullYear()}-${Date.now().toString().slice(-6)}`,
       materia: data.materia,
       alumno: primerAlumno?.nombreCompleto || "",
-      nota: 8,
+      nota: data.notaAprobacion,
+      notaAprobacion: data.notaAprobacion,
       fechaSolicitud: new Date().toISOString(),
       carrera: data.carrera,
       anioCarrera: data.anioCarrera,
@@ -279,6 +292,7 @@ export const TramitesProvider: React.FC<{ children: ReactNode }> = ({ children }
   const avanzarFase = async (id: string, accion: string, comentario?: string, nuevoDoc?: Documento) => {
     let notificationTarget: Role | null = null;
     let notificationMessage = "";
+    marcarLeidasPorTramiteYRol(id, rolActivo);
 
     setTramites((prev) =>
       prev.map((tramite) => {
@@ -348,6 +362,7 @@ export const TramitesProvider: React.FC<{ children: ReactNode }> = ({ children }
   };
 
   const rechazarTramite = async (id: string, motivo: string) => {
+    marcarLeidasPorTramiteYRol(id, rolActivo);
     setTramites((prev) =>
       prev.map((tramite) => {
         if (tramite.id !== id) {
@@ -377,6 +392,7 @@ export const TramitesProvider: React.FC<{ children: ReactNode }> = ({ children }
 
   const devolverTramite = async (id: string, observaciones: string, faseDestino: number) => {
     const faseCorregida = Math.max(1, Math.min(faseDestino, 8));
+    marcarLeidasPorTramiteYRol(id, rolActivo);
 
     setTramites((prev) =>
       prev.map((tramite) => {

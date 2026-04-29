@@ -30,7 +30,7 @@ export function AdministrativoDashboard() {
   const procesarSolicitud = (id: number, currentEstado: string, nota: number) => {
     setSolicitudes((prev) => prev.map(s => {
       if (s.id === id) {
-        if (nota < 7) return { ...s, estado: "Rechazado" };
+        if (nota < 8) return { ...s, estado: "Rechazado" };
         if (currentEstado === "Pendiente V1") return { ...s, estado: "Pendiente V2" };
         if (currentEstado === "Pendiente V2") return { ...s, estado: "RF Generada" };
       }
@@ -141,7 +141,7 @@ export function AdministrativoDashboard() {
                     </td>
                     <td className="px-4 py-4 text-center">
                       <span className={`inline-flex items-center justify-center min-w-[32px] px-2 py-1 rounded text-xs font-bold border ${
-                        sol.nota >= 7 ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-rose-50 text-rose-700 border-rose-200"
+                        sol.nota >= 8 ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-rose-50 text-rose-700 border-rose-200"
                       }`}>
                         {sol.nota}
                       </span>
