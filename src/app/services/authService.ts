@@ -1,83 +1,54 @@
 ﻿import { hasSupabaseConfig, supabase } from "../../lib/supabaseClient";
-import type { Cargo, Carrera, Role, User } from "../context/UserContext";
+import type { AcademicDesignation, Cargo, Carrera, Role, User } from "../context/UserContext";
 
 type GenericRow = Record<string, unknown>;
 
-const DEFAULT_TABLES = ["docentes", "docente", "profesores", "usuarios", "profiles", "perfiles"];
-const DEFAULT_DNI_COLUMNS = ["dni", "documento", "nro_dni", "numero_dni", "n_documento", "documento_numero"];
 const QUERY_TIMEOUT_MS = Number(import.meta.env.VITE_SUPABASE_TIMEOUT_MS ?? 2500);
-
-const configuredUsersTable = (import.meta.env.VITE_SUPABASE_USERS_TABLE ?? "").trim();
-const configuredDniColumn = (import.meta.env.VITE_SUPABASE_DNI_COLUMN ?? "").trim();
-const configuredRolesTable = (import.meta.env.VITE_SUPABASE_ROLES_TABLE ?? "").trim();
-
-function uniqueNonEmpty(values: string[]): string[] {
-  return values.filter((value, idx, arr): value is string => Boolean(value) && arr.indexOf(value) === idx);
-}
-
-const tableCandidates = uniqueNonEmpty([
-  configuredUsersTable,
-  configuredUsersTable.toLowerCase(),
-  configuredUsersTable.toUpperCase(),
-  ...DEFAULT_TABLES,
-]);
-
-const dniColumnCandidates = uniqueNonEmpty([
-  configuredDniColumn,
-  configuredDniColumn.toLowerCase(),
-  configuredDniColumn.toUpperCase(),
-  ...DEFAULT_DNI_COLUMNS,
-]);
-
-const ignoredDbCodes = new Set(["42P01", "42703", "PGRST205", "42501"]);
-const rolesTableCandidates = uniqueNonEmpty([
-  configuredRolesTable,
-  configuredRolesTable.toLowerCase(),
-  configuredRolesTable.toUpperCase(),
-  "designacioens",
-  "designaciones",
-]);
+const configuredRolesTable = (import.meta.env.VITE_SUPABASE_ROLES_TABLE ?? "designaciones").trim();
+const ROLES_TABLE_CANDIDATES = Array.from(new Set([configuredRolesTable, "designaciones", "designacioens"]));
+const USER_TABLE_CANDIDATES = ["usuarios", "users", "profiles", "perfiles"];
 
 function getString(row: GenericRow, keys: string[], fallback = ""): string {
   for (const key of keys) {
     const value = row[key];
-    if (typeof value === "string" && value.trim()) {
-      return value.trim();
-    }
-    if (typeof value === "number" || typeof value === "bigint") {
-      return String(value);
-    }
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (typeof value === "number" || typeof value === "bigint") return String(value);
   }
   return fallback;
 }
 
-function normalizeRole(rawRole: string): Role {
-  const role = rawRole
+function normalizeToken(raw: string): string {
+  return raw
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toUpperCase()
     .replace(/[^A-Z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
+}
+
+function normalizeGeneralRole(rawRole: string): Role {
+  const role = normalizeToken(rawRole);
   const map: Record<string, Role> = {
     DOCENTE: "DOCENTE",
-    DOCENTE_RESPONSABLE: "DOCENTE_RESPONSABLE",
-    RESPONSABLE_CATEDRA: "DOCENTE_RESPONSABLE",
-    RESPONSABLE_DE_CATEDRA: "DOCENTE_RESPONSABLE",
-    RESPONSABLEDECATEDRA: "DOCENTE_RESPONSABLE",
-    RESPONSABLE: "DOCENTE_RESPONSABLE",
+    DOCENTE_RESPONSABLE: "DOCENTE",
+    RESPONSABLE: "DOCENTE",
+    RESPONSABLE_CATEDRA: "DOCENTE",
+    RESPONSABLE_DE_CATEDRA: "DOCENTE",
     JEFE_CARRERA: "JEFE_CARRERA",
     JEFE_DE_CARRERA: "JEFE_CARRERA",
     SECRETARIA: "SECRETARIA",
     SECRETARIA_ACADEMICA: "SECRETARIA",
-    SEC_ACADEMICA: "SECRETARIA",
     ADMINISTRATIVO: "ADMINISTRATIVO",
-    MESA_DE_AYUDA: "ADMINISTRATIVO",
-    MESA_AYUDA: "ADMINISTRATIVO",
     SEC_TECNICA: "SEC_TECNICA",
     SECRETARIA_TECNICA: "SEC_TECNICA",
-    TECNICA: "SEC_TECNICA",
   };
   return map[role] ?? "DOCENTE";
+}
+
+function normalizeAcademicRole(rawRole: string): "DOCENTE" | "DOCENTE_RESPONSABLE" {
+  const role = normalizeToken(rawRole);
+  if (role.includes("RESPONSABLE")) return "DOCENTE_RESPONSABLE";
+  return "DOCENTE";
 }
 
 function normalizeCarrera(rawCarrera: string): Carrera {
@@ -100,40 +71,39 @@ function normalizeCargo(rawCargo: string): Cargo {
   return "Administrativo";
 }
 
-function mapRowToUser(row: GenericRow): User | null {
-  const dni = getString(row, dniColumnCandidates).replace(/\D/g, "");
+function isRecoverableError(error: unknown): boolean {
+  const code = (error as { code?: string })?.code;
+  if (code && ["42P01", "42703", "PGRST205", "42501"].includes(code)) return true;
+
+  const message = (error as { message?: string })?.message?.toLowerCase() ?? "";
+  return (
+    message.includes("relation")
+    || message.includes("column")
+    || message.includes("permission denied")
+    || message.includes("does not exist")
+    || message.includes("forbidden")
+  );
+}
+
+function mapDocenteRowToUser(row: GenericRow): User | null {
+  const dni = getString(row, ["dni", "documento", "DNI"], "").replace(/\D/g, "");
   if (!dni) return null;
 
-  const nombreCompuesto = `${getString(row, ["nombre", "first_name"], "").trim()} ${getString(
-    row,
-    ["apellido", "last_name"],
-    "",
-  ).trim()}`.trim();
-  const nombre =
-    getString(row, ["nombre_completo", "full_name", "display_name"]) ||
-    nombreCompuesto ||
-    "";
-
-  // Evita usuarios "vacíos" que terminan apareciendo como "Docente" repetido.
-  if (!nombre || nombre.toLowerCase() === "docente") {
-    return null;
-  }
-
-  const rol = normalizeRole(getString(row, ["rol", "role", "perfil", "tipo_usuario", "funcion"], "DOCENTE"));
-  const carrera = normalizeCarrera(getString(row, ["carrera", "departamento", "carrera_nombre"], "Todas"));
-  const cargo = normalizeCargo(getString(row, ["cargo", "puesto", "categoria"], "Administrativo"));
-
-  const idDocente = getString(row, ["id_docente", "docente_id", "id"], "");
+  const nombre = getString(row, ["nombre"], "");
+  const apellido = getString(row, ["apellido"], "");
+  const nombreCompleto = `${nombre} ${apellido}`.trim();
+  if (!nombreCompleto) return null;
 
   return {
-    idDocente: idDocente || undefined,
-    nombre,
+    idDocente: getString(row, ["id_docente", "id"], "") || undefined,
+    nombre: nombreCompleto,
     dni,
-    carrera,
-    cargo,
-    materia: getString(row, ["materia", "asignatura"], "-") || "-",
-    rol,
-    email: getString(row, ["email", "correo", "mail"], `${dni}@faud.edu.ar`) || `${dni}@faud.edu.ar`,
+    carrera: "Todas",
+    cargo: "Auxiliar",
+    materia: "-",
+    rol: "DOCENTE",
+    email: getString(row, ["email", "E_mail", "correo", "mail"], `${dni}@faud.edu.ar`) || `${dni}@faud.edu.ar`,
+    designaciones: [],
   };
 }
 
@@ -141,8 +111,8 @@ function mapRpcRowToUser(row: GenericRow): User | null {
   const dni = getString(row, ["dni"], "").replace(/\D/g, "");
   if (!dni) return null;
 
-  const nombreCompuesto = `${getString(row, ["nombre"], "").trim()} ${getString(row, ["apellido"], "").trim()}`.trim();
-  const nombre = getString(row, ["nombre_completo"], "") || nombreCompuesto;
+  const nombreCompleto = getString(row, ["nombre_completo"], "");
+  const nombre = nombreCompleto || `${getString(row, ["nombre"], "")} ${getString(row, ["apellido"], "")}`.trim();
   if (!nombre) return null;
 
   return {
@@ -150,10 +120,11 @@ function mapRpcRowToUser(row: GenericRow): User | null {
     nombre,
     dni,
     carrera: normalizeCarrera(getString(row, ["carrera"], "Todas")),
-    cargo: normalizeCargo(getString(row, ["cargo"], "Administrativo")),
+    cargo: normalizeCargo(getString(row, ["cargo"], "Docente")),
     materia: getString(row, ["materia", "asignatura"], "-") || "-",
-    rol: normalizeRole(getString(row, ["rol_sistema", "rol"], "DOCENTE")),
+    rol: "DOCENTE",
     email: getString(row, ["email"], `${dni}@faud.edu.ar`) || `${dni}@faud.edu.ar`,
+    designaciones: [],
   };
 }
 
@@ -163,30 +134,51 @@ async function loginByDniRpc(dni: string): Promise<User | null> {
     throw new Error(`No se pudo ejecutar login seguro por RPC: ${error.message}`);
   }
 
-  if (!Array.isArray(data) || data.length === 0) {
-    return null;
-  }
-
+  if (!Array.isArray(data) || data.length === 0) return null;
   return mapRpcRowToUser((data[0] ?? {}) as GenericRow);
 }
 
-async function resolveRoleFromSistema(user: User): Promise<Role | null> {
-  if (!hasSupabaseConfig) return null;
+async function findDocenteByDni(dni: string): Promise<User | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), QUERY_TIMEOUT_MS);
 
+  try {
+    const { data, error } = await supabase
+      .from("docentes")
+      .select("*")
+      .eq("dni", dni)
+      .limit(1)
+      .abortSignal(controller.signal)
+      .maybeSingle();
+
+    if (error) {
+      if (isRecoverableError(error)) return null;
+      return null;
+    }
+
+    if (!data) return null;
+    return mapDocenteRowToUser(data as GenericRow);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function resolveGeneralRole(user: User): Promise<Role> {
   const idDocente = user.idDocente?.trim() ?? "";
   const dni = user.dni.replace(/\D/g, "");
 
-  for (const tableName of rolesTableCandidates) {
-    const attempts = [
-      idDocente ? supabase.from(tableName).select("*").eq("id_docente", idDocente).limit(1) : null,
-      dni ? supabase.from(tableName).select("*").eq("dni", dni).limit(1) : null,
-    ].filter(Boolean);
+  for (const tableName of USER_TABLE_CANDIDATES) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), QUERY_TIMEOUT_MS);
 
-    for (const attempt of attempts) {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), QUERY_TIMEOUT_MS);
+    try {
+      const attempts = [
+        idDocente ? supabase.from(tableName).select("rol").eq("id_docente", idDocente).limit(1) : null,
+        dni ? supabase.from(tableName).select("rol").eq("dni", dni).limit(1) : null,
+        user.email ? supabase.from(tableName).select("rol").eq("email", user.email).limit(1) : null,
+      ].filter(Boolean);
 
-      try {
+      for (const attempt of attempts) {
         const { data, error } = await attempt!.abortSignal(controller.signal).maybeSingle();
         if (error) {
           if (isRecoverableError(error)) continue;
@@ -194,49 +186,35 @@ async function resolveRoleFromSistema(user: User): Promise<Role | null> {
         }
         if (!data) continue;
 
-        const roleRaw = getString(data as GenericRow, ["rol_sistema", "rol", "role", "perfil"], "");
-        if (!roleRaw) continue;
-        return normalizeRole(roleRaw);
-      } catch (error) {
-        if (!isRecoverableError(error)) {
-          console.warn(`No se pudo resolver rol en ${tableName}:`, error);
-        }
-      } finally {
-        clearTimeout(timer);
+        const rol = getString(data as GenericRow, ["rol"], "");
+        if (!rol) continue;
+        return normalizeGeneralRole(rol);
       }
+    } catch (error) {
+      if (!isRecoverableError(error)) {
+        console.warn(`No se pudo resolver rol general en ${tableName}:`, error);
+      }
+    } finally {
+      clearTimeout(timer);
     }
   }
 
-  return null;
+  return "DOCENTE";
 }
 
-function rolePriority(role: Role): number {
-  const priority: Record<Role, number> = {
-    DOCENTE: 1,
-    DOCENTE_RESPONSABLE: 2,
-    ADMINISTRATIVO: 3,
-    SECRETARIA: 4,
-    SEC_TECNICA: 5,
-    JEFE_CARRERA: 6,
-  };
-  return priority[role] ?? 0;
-}
+async function resolveAcademicDesignaciones(user: User): Promise<AcademicDesignation[]> {
+  const idDocente = user.idDocente?.trim() ?? "";
+  if (!idDocente) return [];
 
-async function resolveRolesForDocentes(docentes: User[]): Promise<Map<string, Role>> {
-  const roleByDocenteId = new Map<string, Role>();
-  const ids = docentes.map((d) => d.idDocente?.trim() ?? "").filter(Boolean);
-  if (ids.length === 0) return roleByDocenteId;
-
-  const uniqueIds = Array.from(new Set(ids));
-
-  for (const tableName of rolesTableCandidates) {
+  for (const tableName of ROLES_TABLE_CANDIDATES) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), QUERY_TIMEOUT_MS);
+
     try {
       const { data, error } = await supabase
         .from(tableName)
         .select("*")
-        .in("id_docente", uniqueIds)
+        .eq("id_docente", idDocente)
         .abortSignal(controller.signal);
 
       if (error) {
@@ -244,47 +222,49 @@ async function resolveRolesForDocentes(docentes: User[]): Promise<Map<string, Ro
         continue;
       }
 
-      for (const raw of (data ?? []) as GenericRow[]) {
-        const idDocente = getString(raw, ["id_docente", "docente_id"], "").trim();
-        if (!idDocente) continue;
-        const roleRaw = getString(raw, ["rol_sistema", "rol", "role", "perfil"], "");
-        if (!roleRaw) continue;
-        const parsedRole = normalizeRole(roleRaw);
-        const current = roleByDocenteId.get(idDocente);
-        if (!current || rolePriority(parsedRole) > rolePriority(current)) {
-          roleByDocenteId.set(idDocente, parsedRole);
-        }
-      }
+      const designaciones = ((data ?? []) as GenericRow[]).map((row) => {
+        const rolSistema = getString(row, ["rol_sistema", "rol", "role"], "docente");
+        return {
+          id: getString(row, ["id"], "") || undefined,
+          carrera: getString(row, ["carrera"], user.carrera),
+          asignatura: getString(row, ["asignatura"], ""),
+          cargo: getString(row, ["cargo"], ""),
+          rolSistema,
+          academicRole: normalizeAcademicRole(rolSistema),
+        } satisfies AcademicDesignation;
+      });
 
-      if (roleByDocenteId.size > 0) {
-        return roleByDocenteId;
-      }
+      if (designaciones.length > 0) return designaciones;
     } catch (error) {
       if (!isRecoverableError(error)) {
-        console.warn(`No se pudo resolver roles masivos en ${tableName}:`, error);
+        console.warn(`No se pudo resolver designaciones en ${tableName}:`, error);
       }
     } finally {
       clearTimeout(timer);
     }
   }
 
-  return roleByDocenteId;
+  return [];
 }
 
-function isRecoverableError(error: unknown): boolean {
-  const code = (error as { code?: string })?.code;
-  if (code && ignoredDbCodes.has(code)) return true;
+async function enrichUserWithRoles(user: User): Promise<User> {
+  const [rolGeneral, designaciones] = await Promise.all([
+    resolveGeneralRole(user),
+    resolveAcademicDesignaciones(user),
+  ]);
 
-  const message = (error as { message?: string })?.message?.toLowerCase() ?? "";
-  return (
-    message.includes("relation") ||
-    message.includes("column") ||
-    message.includes("permission denied") ||
-    message.includes("does not exist") ||
-    message.includes("forbidden") ||
-    message.includes("network") ||
-    message.includes("fetch")
-  );
+  const materiaPrimaria = designaciones[0]?.asignatura?.trim();
+  const carreraPrimaria = designaciones[0]?.carrera?.trim();
+  const cargoPrimario = designaciones[0]?.cargo?.trim();
+
+  return {
+    ...user,
+    rol: rolGeneral,
+    materia: materiaPrimaria || user.materia,
+    carrera: normalizeCarrera(carreraPrimaria || user.carrera),
+    cargo: normalizeCargo(cargoPrimario || user.cargo),
+    designaciones,
+  };
 }
 
 function dedupeUsers(users: User[]): User[] {
@@ -301,176 +281,60 @@ function dedupeUsers(users: User[]): User[] {
   return unique;
 }
 
-async function findByDniInTable(tableName: string, dni: string): Promise<User | null> {
-  const dniNumber = Number.parseInt(dni, 10);
-  const hasNumericDni = Number.isFinite(dniNumber);
+export async function loginByDni(dni: string): Promise<User | null> {
+  if (!hasSupabaseConfig) return null;
 
-  for (const dniColumn of dniColumnCandidates) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), QUERY_TIMEOUT_MS);
+  const cleanDni = dni.replace(/\D/g, "");
+  if (!cleanDni) return null;
 
-    try {
-      const { data, error } = await supabase
-        .from(tableName)
-        .select("*")
-        .eq(dniColumn, dni)
-        .limit(1)
-        .abortSignal(controller.signal)
-        .maybeSingle();
+  let baseUser: User | null = null;
+  let rpcErrorMessage = "";
 
-      if (error) {
-        if (isRecoverableError(error)) {
-          continue;
-        }
-        continue;
-      }
-
-      if (data) {
-        const mapped = mapRowToUser(data as GenericRow);
-        if (mapped) {
-          return mapped;
-        }
-      }
-
-      if (hasNumericDni) {
-        const { data: numericData, error: numericError } = await supabase
-          .from(tableName)
-          .select("*")
-          .eq(dniColumn, dniNumber)
-          .limit(1)
-          .abortSignal(controller.signal)
-          .maybeSingle();
-
-        if (!numericError && numericData) {
-          const mappedNumeric = mapRowToUser(numericData as GenericRow);
-          if (mappedNumeric) {
-            return mappedNumeric;
-          }
-        }
-      }
-    } catch (error) {
-      if (!isRecoverableError(error)) {
-        console.warn(`Consulta falló en ${tableName}.${dniColumn}:`, error);
-      }
-    } finally {
-      clearTimeout(timer);
-    }
+  try {
+    baseUser = await loginByDniRpc(cleanDni);
+  } catch (error) {
+    rpcErrorMessage = error instanceof Error ? error.message : "Fallo desconocido en RPC de login.";
   }
+
+  if (!baseUser) {
+    baseUser = await findDocenteByDni(cleanDni);
+  }
+
+  if (!baseUser) {
+    if (rpcErrorMessage) throw new Error(rpcErrorMessage);
+    return null;
+  }
+
+  return enrichUserWithRoles(baseUser);
+}
+
+export async function getProfesoresFromSupabase(): Promise<User[]> {
+  if (!hasSupabaseConfig) return [];
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), QUERY_TIMEOUT_MS);
 
   try {
     const { data, error } = await supabase
-      .from(tableName)
+      .from("docentes")
       .select("*")
       .limit(1000)
       .abortSignal(controller.signal);
 
-    if (!error && data) {
-      const matching = data.map((row) => mapRowToUser(row as GenericRow)).find((user) => user?.dni === dni) ?? null;
-      if (matching) {
-        return matching;
+    if (error) {
+      if (!isRecoverableError(error)) {
+        console.warn("No se pudo cargar docentes desde Supabase:", error);
       }
+      return [];
     }
-  } catch (error) {
-    if (!isRecoverableError(error)) {
-      console.warn(`Búsqueda amplia por DNI falló en ${tableName}:`, error);
-    }
+
+    const docentesBase = dedupeUsers(((data ?? []) as GenericRow[])
+      .map((row) => mapDocenteRowToUser(row))
+      .filter((item): item is User => Boolean(item)));
+
+    const enriched = await Promise.all(docentesBase.map((docente) => enrichUserWithRoles(docente)));
+    return enriched;
   } finally {
     clearTimeout(timer);
   }
-
-  return null;
-}
-
-export async function loginByDni(dni: string): Promise<User | null> {
-  if (!hasSupabaseConfig) return null;
-
-  const cleanDni = dni.replace(/\D/g, "");
-  if (!cleanDni) return null;
-  let rpcErrorMessage = "";
-
-  try {
-    const userFromRpc = await loginByDniRpc(cleanDni);
-    if (userFromRpc) return userFromRpc;
-  } catch (error) {
-    rpcErrorMessage = error instanceof Error ? error.message : "Fallo desconocido en RPC de login.";
-    console.warn("RPC login_docente_by_dni no disponible o falló:", error);
-  }
-
-  for (const tableName of tableCandidates) {
-    const user = await findByDniInTable(tableName, cleanDni);
-    if (user) {
-      const roleFromSistema = await resolveRoleFromSistema(user);
-      if (roleFromSistema) {
-        return { ...user, rol: roleFromSistema };
-      }
-      return user;
-    }
-  }
-
-  const docentes = await getProfesoresFromSupabase();
-  const docente = docentes.find((item) => item.dni === cleanDni) ?? null;
-  if (!docente) {
-    if (rpcErrorMessage) {
-      throw new Error(rpcErrorMessage);
-    }
-    return null;
-  }
-  const roleFromSistema = await resolveRoleFromSistema(docente);
-  if (roleFromSistema) {
-    return { ...docente, rol: roleFromSistema };
-  }
-  return docente;
-}
-
-export async function getProfesoresFromSupabase(): Promise<User[]> {
-  if (!hasSupabaseConfig) return [];
-
-  const collected: User[] = [];
-
-  for (const tableName of tableCandidates) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), QUERY_TIMEOUT_MS);
-
-    try {
-      const { data, error } = await supabase
-        .from(tableName)
-        .select("*")
-        .limit(500)
-        .abortSignal(controller.signal);
-
-      if (error) {
-        if (isRecoverableError(error)) {
-          continue;
-        }
-        continue;
-      }
-
-      for (const row of data ?? []) {
-        const mapped = mapRowToUser(row as GenericRow);
-        if (mapped) {
-          collected.push(mapped);
-        }
-      }
-    } catch (error) {
-      if (!isRecoverableError(error)) {
-        console.warn(`Carga de docentes falló en ${tableName}:`, error);
-      }
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-
-  const uniqueDocentes = dedupeUsers(collected);
-  const rolesByDocente = await resolveRolesForDocentes(uniqueDocentes);
-
-  return uniqueDocentes.map((docente) => {
-    const idDocente = docente.idDocente?.trim() ?? "";
-    if (!idDocente) return docente;
-    const role = rolesByDocente.get(idDocente);
-    if (!role) return docente;
-    return { ...docente, rol: role };
-  });
 }

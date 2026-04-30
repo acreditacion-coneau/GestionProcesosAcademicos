@@ -12,9 +12,9 @@ interface TeacherDashboardProps {
 }
 
 export function TeacherDashboard({ forceResponsableView = false }: TeacherDashboardProps) {
-  const { user } = useUser();
+  const { user, hasAnyResponsableDesignacion } = useUser();
   const { isSidebarCollapsed } = useLayoutState();
-  const isResponsable = forceResponsableView || user.rol === "DOCENTE_RESPONSABLE";
+  const isResponsable = forceResponsableView || hasAnyResponsableDesignacion();
 
   const [activeFilter, setActiveFilter] = useState("all");
   const [categoriesOpen, setCategoriesOpen] = useState(true);

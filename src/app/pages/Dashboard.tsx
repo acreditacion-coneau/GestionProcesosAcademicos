@@ -8,7 +8,7 @@ import { ConfiguracionFechasModal } from '../components/tramites/ConfiguracionFe
 import { Plus, Settings, Filter, Search, ArrowLeft } from 'lucide-react';
 
 export const Dashboard: React.FC = () => {
-  const { user } = useUser();
+  const { user, hasAnyResponsableDesignacion } = useUser();
   const { tramites, rolActivo, setRolActivo, loading, error } = useTramites();
   const [showNewModal, setShowNewModal] = useState(false);
   const [showConfigModal, setShowConfigModal] = useState(false);
@@ -16,6 +16,7 @@ export const Dashboard: React.FC = () => {
   const [estadoFilter, setEstadoFilter] = useState<'TODOS' | 'creada' | 'en_verificacion' | 'aprobada_jefe' | 'en_secretaria' | 'finalizada' | 'rechazada'>('TODOS');
   const [carreraFilter, setCarreraFilter] = useState<'TODAS' | string>('TODAS');
   const [searchTerm, setSearchTerm] = useState('');
+  const isAcademicResponsable = hasAnyResponsableDesignacion();
 
   useEffect(() => {
     let newRol: 'DOCENTE' | 'DOCENTE_RESPONSABLE' | 'ADMINISTRATIVO' | 'JEFE_CARRERA' | 'SECRETARIA' | 'SEC_TECNICA' = 'DOCENTE';
@@ -23,10 +24,11 @@ export const Dashboard: React.FC = () => {
     if (user.rol === 'JEFE_CARRERA') newRol = 'JEFE_CARRERA';
     if (user.rol === 'SECRETARIA') newRol = 'SECRETARIA';
     if (user.rol === 'SEC_TECNICA') newRol = 'SEC_TECNICA';
-    if (user.rol === 'DOCENTE_RESPONSABLE') newRol = 'DOCENTE_RESPONSABLE';
-    if (user.rol === 'DOCENTE') newRol = 'DOCENTE';
+    if (user.rol === 'DOCENTE' || user.rol === 'DOCENTE_RESPONSABLE') {
+      newRol = isAcademicResponsable ? 'DOCENTE_RESPONSABLE' : 'DOCENTE';
+    }
     setRolActivo(newRol);
-  }, [user.rol, setRolActivo]);
+  }, [user.rol, setRolActivo, isAcademicResponsable]);
 
   const carrerasDisponibles = useMemo(() => {
     return Array.from(new Set(tramites.map((t) => t.carrera))).sort((a, b) => a.localeCompare(b, 'es'));

@@ -827,15 +827,21 @@ function TramiteCard({ tramite: t, children, compact = false }: {
 // ── Main page ──────────────────────────────────────────────────
 
 export function AyudantesFlow() {
-  const { user } = useUser();
+  const { user, hasAnyResponsableDesignacion } = useUser();
   const { tramites, notificaciones, marcarLeida } = useTramites();
+  const isAcademicResponsable = hasAnyResponsableDesignacion();
+  const effectiveRole =
+    user.rol === "DOCENTE" || user.rol === "DOCENTE_RESPONSABLE"
+      ? (isAcademicResponsable ? "DOCENTE_RESPONSABLE" : "DOCENTE")
+      : user.rol;
 
   // Mark relevant notifications as read when entering the page
   useEffect(() => {
+    const visibleRoles = new Set([user.rol, effectiveRole]);
     notificaciones
-      .filter(n => n.rolDestino === user.rol && !n.leida && n.tramiteId)
+      .filter(n => visibleRoles.has(n.rolDestino) && !n.leida && n.tramiteId)
       .forEach(n => marcarLeida(n.id));
-  }, [user.rol]);
+  }, [user.rol, effectiveRole, notificaciones, marcarLeida]);
 
   const roleLabels: Record<string, string> = {
     DOCENTE_RESPONSABLE: "Mis Designaciones de Ayudantes",
@@ -855,7 +861,7 @@ export function AyudantesFlow() {
         <div className="flex items-start justify-between gap-4">
           <div>
             <h2 className="text-2xl font-bold text-slate-900">
-              {roleLabels[user.rol] ?? "Designaciones de Ayudantes"}
+              {roleLabels[effectiveRole] ?? "Designaciones de Ayudantes"}
             </h2>
             <p className="text-sm text-slate-500 mt-1">
               Circuito administrativo completo de 7 fases · Todas las partes son notificadas por sistema y email.
@@ -864,7 +870,7 @@ export function AyudantesFlow() {
           <div className="flex items-center gap-2 shrink-0">
             <div className="text-right hidden sm:block">
               <p className="text-xs font-semibold text-slate-600">{user.nombre}</p>
-              <p className="text-xs text-slate-400">{user.rol}</p>
+              <p className="text-xs text-slate-400">{effectiveRole}</p>
             </div>
           </div>
         </div>
@@ -894,11 +900,11 @@ export function AyudantesFlow() {
       </div>
 
       {/* Role-specific content */}
-      {user.rol === "DOCENTE_RESPONSABLE" && <DocenteView />}
-      {user.rol === "ADMINISTRATIVO" && <AdministrativoView />}
-      {user.rol === "JEFE_CARRERA" && <JefeCarreraView />}
-      {user.rol === "SECRETARIA" && <SecretariaView />}
-      {user.rol === "DOCENTE" && (
+      {effectiveRole === "DOCENTE_RESPONSABLE" && <DocenteView />}
+      {effectiveRole === "ADMINISTRATIVO" && <AdministrativoView />}
+      {effectiveRole === "JEFE_CARRERA" && <JefeCarreraView />}
+      {effectiveRole === "SECRETARIA" && <SecretariaView />}
+      {effectiveRole === "DOCENTE" && (
         <div className="bg-white rounded-2xl border border-slate-100 p-8 text-center text-slate-400">
           <AlertTriangle className="w-8 h-8 mx-auto mb-2 opacity-40" />
           <p className="text-sm">Solo los Docentes Responsables pueden gestionar designaciones de ayudantes.</p>

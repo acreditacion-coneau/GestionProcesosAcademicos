@@ -6,6 +6,15 @@ export type Role = "DOCENTE" | "DOCENTE_RESPONSABLE" | "JEFE_CARRERA" | "SECRETA
 export type Carrera = "Arquitectura" | "Lic. en Diseño de Interiores" | "Diseño Industrial" | "Lic. en Gestión Eficiente de la Energía" | "Todas";
 export type Cargo = "Titular" | "Asociado" | "Adjunto" | "Auxiliar" | "Ayudante" | "Adscripto" | "Administrativo";
 
+export interface AcademicDesignation {
+  id?: string;
+  carrera: string;
+  asignatura: string;
+  cargo: string;
+  rolSistema: string;
+  academicRole: "DOCENTE" | "DOCENTE_RESPONSABLE";
+}
+
 export interface User {
   idDocente?: string;
   nombre: string;
@@ -15,6 +24,7 @@ export interface User {
   materia: string;
   rol: Role;
   email: string;
+  designaciones?: AcademicDesignation[];
 }
 
 interface UserContextType {
@@ -28,6 +38,8 @@ interface UserContextType {
   logout: () => void;
   isAuthenticated: boolean;
   isLoading: boolean;
+  hasAnyResponsableDesignacion: () => boolean;
+  isResponsableForAsignatura: (asignatura?: string) => boolean;
 }
 
 const ADMIN_DNI = "admin";
@@ -273,6 +285,24 @@ export function UserProvider({ children }: { children: ReactNode }) {
     setIsAuthenticated(false);
   };
 
+  const hasAnyResponsableDesignacion = () => {
+    return (user.designaciones ?? []).some((designacion) => designacion.academicRole === "DOCENTE_RESPONSABLE");
+  };
+
+  const isResponsableForAsignatura = (asignatura?: string) => {
+    const designaciones = user.designaciones ?? [];
+    if (!asignatura?.trim()) {
+      return designaciones.some((designacion) => designacion.academicRole === "DOCENTE_RESPONSABLE");
+    }
+
+    const normalizedAsignatura = asignatura.trim().toLowerCase();
+    return designaciones.some(
+      (designacion) =>
+        designacion.academicRole === "DOCENTE_RESPONSABLE"
+        && designacion.asignatura.trim().toLowerCase() === normalizedAsignatura,
+    );
+  };
+
   return (
     <UserContext.Provider
       value={{
@@ -286,6 +316,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
         logout,
         isAuthenticated,
         isLoading,
+        hasAnyResponsableDesignacion,
+        isResponsableForAsignatura,
       }}
     >
       {children}

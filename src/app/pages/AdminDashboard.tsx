@@ -42,7 +42,10 @@ export function AdminDashboard() {
   const [activeView, setActiveView] = useState<AdminViewKey>("docente");
 
   const totalDocentes = useMemo(() => personas.filter((p) => p.rol === "DOCENTE").length, [personas]);
-  const totalResponsables = useMemo(() => personas.filter((p) => p.rol === "DOCENTE_RESPONSABLE").length, [personas]);
+  const totalResponsables = useMemo(
+    () => personas.filter((p) => (p.designaciones ?? []).some((d) => d.academicRole === "DOCENTE_RESPONSABLE")).length,
+    [personas],
+  );
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">

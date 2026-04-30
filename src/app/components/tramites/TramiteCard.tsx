@@ -10,7 +10,7 @@ import { format, differenceInDays } from 'date-fns';
 export const TramiteCard: React.FC<{ tramite: Tramite }> = ({ tramite }) => {
   const [expanded, setExpanded] = useState(false);
   const { rolActivo } = useTramites();
-  const { user } = useUser();
+  const { user, hasAnyResponsableDesignacion } = useUser();
   
   const diasEnSistema = differenceInDays(new Date(), new Date(tramite.fechaCreacion));
   const diasEnFaseActual = differenceInDays(new Date(), new Date(tramite.fechaUltimaActualizacion));
@@ -31,7 +31,7 @@ export const TramiteCard: React.FC<{ tramite: Tramite }> = ({ tramite }) => {
   const alumnosResumen = tramite.alumnosPropuestos.length > 1
     ? `${tramite.alumnosPropuestos[0]?.nombreCompleto} +${tramite.alumnosPropuestos.length - 1}`
     : (tramite.alumnosPropuestos[0]?.nombreCompleto || tramite.alumno);
-  const historialVisible = user.rol === "DOCENTE_RESPONSABLE"
+  const historialVisible = hasAnyResponsableDesignacion()
     ? tramite.historial.filter(
         (evt) =>
           evt.rol === "DOCENTE_RESPONSABLE" ||
@@ -108,7 +108,7 @@ export const TramiteCard: React.FC<{ tramite: Tramite }> = ({ tramite }) => {
         <div className="border-t border-gray-100 p-5 bg-gray-50/50 rounded-b-xl animate-in slide-in-from-top-2 duration-300">
           
           {/* STEPPER */}
-          {user.rol !== "DOCENTE_RESPONSABLE" && (
+          {!hasAnyResponsableDesignacion() && (
             <div className="mb-8">
               <h4 className="text-sm font-semibold text-gray-700 mb-4 uppercase tracking-wider">Progreso del Trámite</h4>
               <Stepper tramite={tramite} />
