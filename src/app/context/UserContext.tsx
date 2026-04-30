@@ -40,6 +40,10 @@ interface UserContextType {
   isLoading: boolean;
   hasAnyResponsableDesignacion: () => boolean;
   isResponsableForAsignatura: (asignatura?: string) => boolean;
+  selectedDesignacionId: string | null;
+  setSelectedDesignacionId: (id: string | null) => void;
+  selectedDesignacion: AcademicDesignation | null;
+  isSelectedDesignacionResponsable: () => boolean;
 }
 
 const ADMIN_DNI = "admin";
@@ -143,6 +147,7 @@ const UserContext = createContext<UserContextType | undefined>(undefined);
 export function UserProvider({ children }: { children: ReactNode }) {
   const [personas, setPersonas] = useState<User[]>(sortPersonas(initialUsers));
   const [user, setUserState] = useState<User>(initialUsers[1] ?? initialUsers[0]);
+  const [selectedDesignacionId, setSelectedDesignacionId] = useState<string | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const isAdmin = user.dni === ADMIN_DNI;
@@ -285,6 +290,29 @@ export function UserProvider({ children }: { children: ReactNode }) {
     setIsAuthenticated(false);
   };
 
+  const selectedDesignacion = useMemo(() => {
+    const designaciones = user.designaciones ?? [];
+    if (designaciones.length === 0) return null;
+    if (!selectedDesignacionId) return designaciones[0];
+    return designaciones.find((designacion) => designacion.id === selectedDesignacionId) ?? designaciones[0];
+  }, [user.designaciones, selectedDesignacionId]);
+
+  useEffect(() => {
+    const designaciones = user.designaciones ?? [];
+    if (designaciones.length === 0) {
+      if (selectedDesignacionId !== null) {
+        setSelectedDesignacionId(null);
+      }
+      return;
+    }
+
+    if (selectedDesignacionId && designaciones.some((designacion) => designacion.id === selectedDesignacionId)) {
+      return;
+    }
+
+    setSelectedDesignacionId(designaciones[0].id ?? null);
+  }, [user.designaciones, selectedDesignacionId]);
+
   const hasAnyResponsableDesignacion = () => {
     return (user.designaciones ?? []).some((designacion) => designacion.academicRole === "DOCENTE_RESPONSABLE");
   };
@@ -303,6 +331,11 @@ export function UserProvider({ children }: { children: ReactNode }) {
     );
   };
 
+  const isSelectedDesignacionResponsable = () => {
+    if (!selectedDesignacion) return false;
+    return selectedDesignacion.academicRole === "DOCENTE_RESPONSABLE";
+  };
+
   return (
     <UserContext.Provider
       value={{
@@ -318,6 +351,10 @@ export function UserProvider({ children }: { children: ReactNode }) {
         isLoading,
         hasAnyResponsableDesignacion,
         isResponsableForAsignatura,
+        selectedDesignacionId,
+        setSelectedDesignacionId,
+        selectedDesignacion,
+        isSelectedDesignacionResponsable,
       }}
     >
       {children}

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useTramites } from "../../context/TramitesContext";
 import { useUser } from "../../context/UserContext";
 import { differenceInDays, format } from "date-fns";
@@ -17,21 +17,33 @@ type AlumnoForm = {
 const YEAR_OPTIONS = ["1ro", "2do", "3ro", "4to", "5to"];
 
 export const NewSolicitudModal: React.FC<ModalProps> = ({ onClose }) => {
-  const { user } = useUser();
+  const { user, selectedDesignacion, isSelectedDesignacionResponsable } = useUser();
   const { crearTramite, cicloConfig } = useTramites();
   const [error, setError] = useState("");
-  const [carrera, setCarrera] = useState(user.carrera === "Todas" ? "Arquitectura" : user.carrera);
+  const [carrera, setCarrera] = useState(selectedDesignacion?.carrera || (user.carrera === "Todas" ? "Arquitectura" : user.carrera));
   const [anioCarrera, setAnioCarrera] = useState("");
-  const [asignatura, setAsignatura] = useState(user.materia === "-" ? "" : user.materia);
+  const [asignatura, setAsignatura] = useState(selectedDesignacion?.asignatura || (user.materia === "-" ? "" : user.materia));
   const [regimen, setRegimen] = useState<"Semestral" | "Anual">("Semestral");
   const [notaAprobacion, setNotaAprobacion] = useState("");
   const [alumnos, setAlumnos] = useState<AlumnoForm[]>([{ nombreCompleto: "", dni: "", sexoGramatical: "F" }]);
   const [submitting, setSubmitting] = useState(false);
 
   const fechaSolicitud = useMemo(() => format(new Date(), "dd/MM/yyyy"), []);
+  const isAcademicDocente = user.rol === "DOCENTE" || user.rol === "DOCENTE_RESPONSABLE";
+  const canSubmitForAcademicRole = !isAcademicDocente || isSelectedDesignacionResponsable();
 
   const diasDesdeInicio = differenceInDays(new Date(), new Date(cicloConfig.inicioClases));
   const fueraDeTermino = diasDesdeInicio > 15;
+
+  useEffect(() => {
+    if (!selectedDesignacion) return;
+    if (selectedDesignacion.carrera?.trim()) {
+      setCarrera(selectedDesignacion.carrera);
+    }
+    if (selectedDesignacion.asignatura?.trim()) {
+      setAsignatura(selectedDesignacion.asignatura);
+    }
+  }, [selectedDesignacion]);
 
   const addAlumno = () => {
     if (alumnos.length >= 2) {
@@ -52,6 +64,16 @@ export const NewSolicitudModal: React.FC<ModalProps> = ({ onClose }) => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+
+    if (isAcademicDocente && !selectedDesignacion) {
+      setError("Debe seleccionar una designación activa antes de crear la solicitud.");
+      return;
+    }
+
+    if (!canSubmitForAcademicRole) {
+      setError("Solo una designación con rol_sistema = 'responsable' puede crear solicitudes.");
+      return;
+    }
 
     if (fueraDeTermino) {
       setError(`Han pasado ${diasDesdeInicio} días desde el inicio de clases. El límite es 15 días.`);
@@ -134,6 +156,15 @@ export const NewSolicitudModal: React.FC<ModalProps> = ({ onClose }) => {
             </div>
           )}
 
+          {isAcademicDocente && selectedDesignacion && !canSubmitForAcademicRole && (
+            <div className="bg-amber-50 text-amber-800 p-3 rounded-md text-sm border border-amber-100 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4" />
+              La asignatura activa es <strong>{selectedDesignacion.asignatura || "Sin asignatura"}</strong> con rol{" "}
+              <strong>{selectedDesignacion.rolSistema}</strong>. Cambie la designación activa a una de tipo{" "}
+              <strong>responsable</strong> para poder enviar la solicitud.
+            </div>
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1">
               <label className="text-sm font-medium text-gray-700">Fecha de la solicitud</label>
@@ -150,6 +181,7 @@ export const NewSolicitudModal: React.FC<ModalProps> = ({ onClose }) => {
               <select
                 value={carrera}
                 onChange={(e) => setCarrera(e.target.value)}
+                disabled={Boolean(selectedDesignacion?.carrera?.trim())}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
               >
                 <option value="Arquitectura">Arquitectura</option>
@@ -197,6 +229,7 @@ export const NewSolicitudModal: React.FC<ModalProps> = ({ onClose }) => {
                 type="text"
                 value={asignatura}
                 onChange={(e) => setAsignatura(e.target.value)}
+                disabled={Boolean(selectedDesignacion?.asignatura?.trim())}
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
                 placeholder="Ej: Diseño 1"
               />
@@ -281,7 +314,7 @@ export const NewSolicitudModal: React.FC<ModalProps> = ({ onClose }) => {
             </button>
             <button
               type="submit"
-              disabled={fueraDeTermino || submitting}
+              disabled={fueraDeTermino || submitting || !canSubmitForAcademicRole}
               className="px-4 py-2 text-sm font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-md transition-colors flex items-center gap-2"
             >
               <Save className="w-4 h-4" /> Enviar solicitud

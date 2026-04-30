@@ -222,13 +222,18 @@ async function resolveAcademicDesignaciones(user: User): Promise<AcademicDesigna
         continue;
       }
 
-      const designaciones = ((data ?? []) as GenericRow[]).map((row) => {
+      const designaciones = ((data ?? []) as GenericRow[]).map((row, index) => {
         const rolSistema = getString(row, ["rol_sistema", "rol", "role"], "docente");
+        const asignatura = getString(row, ["asignatura"], "");
+        const carrera = getString(row, ["carrera"], user.carrera);
+        const cargo = getString(row, ["cargo"], "");
+        const stableFallbackId = `${tableName}-${idDocente}-${index}-${asignatura || "sin_asignatura"}-${rolSistema || "docente"}`;
+
         return {
-          id: getString(row, ["id"], "") || undefined,
-          carrera: getString(row, ["carrera"], user.carrera),
-          asignatura: getString(row, ["asignatura"], ""),
-          cargo: getString(row, ["cargo"], ""),
+          id: getString(row, ["id"], stableFallbackId),
+          carrera,
+          asignatura,
+          cargo,
           rolSistema,
           academicRole: normalizeAcademicRole(rolSistema),
         } satisfies AcademicDesignation;

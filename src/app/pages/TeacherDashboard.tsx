@@ -12,9 +12,9 @@ interface TeacherDashboardProps {
 }
 
 export function TeacherDashboard({ forceResponsableView = false }: TeacherDashboardProps) {
-  const { user, hasAnyResponsableDesignacion } = useUser();
+  const { user, selectedDesignacion, isSelectedDesignacionResponsable } = useUser();
   const { isSidebarCollapsed } = useLayoutState();
-  const isResponsable = forceResponsableView || hasAnyResponsableDesignacion();
+  const isResponsable = forceResponsableView || isSelectedDesignacionResponsable();
 
   const [activeFilter, setActiveFilter] = useState("all");
   const [categoriesOpen, setCategoriesOpen] = useState(true);
@@ -198,6 +198,11 @@ export function TeacherDashboard({ forceResponsableView = false }: TeacherDashbo
             <p className="text-slate-500 mt-2 text-lg font-light">
               Gestione sus trámites y autoevaluaciones desde un solo lugar.
             </p>
+            {selectedDesignacion && (
+              <p className="text-xs text-slate-500 mt-2">
+                Asignatura activa: {selectedDesignacion.asignatura || "Sin asignatura"} · Rol académico: {selectedDesignacion.rolSistema}
+              </p>
+            )}
           </div>
         </div>
         

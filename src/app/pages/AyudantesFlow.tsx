@@ -827,9 +827,9 @@ function TramiteCard({ tramite: t, children, compact = false }: {
 // ── Main page ──────────────────────────────────────────────────
 
 export function AyudantesFlow() {
-  const { user, hasAnyResponsableDesignacion } = useUser();
+  const { user, selectedDesignacion, isSelectedDesignacionResponsable } = useUser();
   const { tramites, notificaciones, marcarLeida } = useTramites();
-  const isAcademicResponsable = hasAnyResponsableDesignacion();
+  const isAcademicResponsable = isSelectedDesignacionResponsable();
   const effectiveRole =
     user.rol === "DOCENTE" || user.rol === "DOCENTE_RESPONSABLE"
       ? (isAcademicResponsable ? "DOCENTE_RESPONSABLE" : "DOCENTE")
@@ -866,6 +866,11 @@ export function AyudantesFlow() {
             <p className="text-sm text-slate-500 mt-1">
               Circuito administrativo completo de 7 fases · Todas las partes son notificadas por sistema y email.
             </p>
+            {(user.rol === "DOCENTE" || user.rol === "DOCENTE_RESPONSABLE") && selectedDesignacion && (
+              <p className="text-xs text-blue-700 mt-2">
+                Asignatura activa: {selectedDesignacion.asignatura || "Sin asignatura"} · Rol académico: {selectedDesignacion.rolSistema}
+              </p>
+            )}
           </div>
           <div className="flex items-center gap-2 shrink-0">
             <div className="text-right hidden sm:block">

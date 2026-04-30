@@ -8,7 +8,7 @@ import { ConfiguracionFechasModal } from '../components/tramites/ConfiguracionFe
 import { Plus, Settings, Filter, Search, ArrowLeft } from 'lucide-react';
 
 export const Dashboard: React.FC = () => {
-  const { user, hasAnyResponsableDesignacion } = useUser();
+  const { user, selectedDesignacion, isSelectedDesignacionResponsable } = useUser();
   const { tramites, rolActivo, setRolActivo, loading, error } = useTramites();
   const [showNewModal, setShowNewModal] = useState(false);
   const [showConfigModal, setShowConfigModal] = useState(false);
@@ -16,7 +16,7 @@ export const Dashboard: React.FC = () => {
   const [estadoFilter, setEstadoFilter] = useState<'TODOS' | 'creada' | 'en_verificacion' | 'aprobada_jefe' | 'en_secretaria' | 'finalizada' | 'rechazada'>('TODOS');
   const [carreraFilter, setCarreraFilter] = useState<'TODAS' | string>('TODAS');
   const [searchTerm, setSearchTerm] = useState('');
-  const isAcademicResponsable = hasAnyResponsableDesignacion();
+  const isAcademicResponsable = isSelectedDesignacionResponsable();
 
   useEffect(() => {
     let newRol: 'DOCENTE' | 'DOCENTE_RESPONSABLE' | 'ADMINISTRATIVO' | 'JEFE_CARRERA' | 'SECRETARIA' | 'SEC_TECNICA' = 'DOCENTE';
@@ -77,6 +77,12 @@ export const Dashboard: React.FC = () => {
             <p className="mt-1 text-sm text-gray-500">
               Gestione y realice el seguimiento de las solicitudes de ayudantía de alumnos.
             </p>
+            {(user.rol === "DOCENTE" || user.rol === "DOCENTE_RESPONSABLE") && selectedDesignacion && (
+              <p className="mt-2 text-xs text-blue-700">
+                Asignatura activa: <strong>{selectedDesignacion.asignatura || "Sin asignatura"}</strong> · Rol académico:{" "}
+                <strong>{selectedDesignacion.rolSistema}</strong>
+              </p>
+            )}
           </div>
           <div className="flex items-center gap-3">
             {rolActivo === 'SECRETARIA' && (
@@ -92,6 +98,7 @@ export const Dashboard: React.FC = () => {
             {(rolActivo === 'DOCENTE' || rolActivo === 'DOCENTE_RESPONSABLE') && (
               <button 
                 onClick={() => setShowNewModal(true)}
+                title={isAcademicResponsable ? "Crear nueva solicitud" : "Solo responsables de cátedra pueden crear solicitudes"}
                 className="flex items-center justify-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 transition-colors"
               >
                 <Plus className="w-4 h-4 mr-2" />

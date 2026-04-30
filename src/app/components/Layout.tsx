@@ -15,7 +15,15 @@ const ROL_LABELS: Record<string, string> = {
 };
 
 function LayoutInner() {
-  const { user, personas, setPersonaIndex, isAdmin } = useUser();
+  const {
+    user,
+    personas,
+    setPersonaIndex,
+    isAdmin,
+    selectedDesignacionId,
+    setSelectedDesignacionId,
+    selectedDesignacion,
+  } = useUser();
   const { isSidebarCollapsed, toggleSidebar } = useLayoutState();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [searchPersona, setSearchPersona] = useState("");
@@ -46,6 +54,11 @@ function LayoutInner() {
       );
     });
   }, [personas, searchPersona]);
+
+  const designaciones = user.designaciones ?? [];
+  const showDesignacionSelector =
+    (user.rol === "DOCENTE" || user.rol === "DOCENTE_RESPONSABLE")
+    && designaciones.length > 0;
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-800 flex flex-col">
@@ -79,11 +92,30 @@ function LayoutInner() {
           </div>
 
           <div className="flex items-center gap-3 md:gap-4 shrink-0">
-            <div className="hidden lg:flex flex-col text-right">
+            <div className="hidden lg:flex flex-col text-right gap-1.5">
               <span className="font-medium text-sm">{user.nombre}</span>
               <span className="text-blue-200 text-xs">
                 {ROL_LABELS[user.rol] ?? user.rol} · {user.carrera === "Todas" ? "Todas las carreras" : user.carrera}
               </span>
+              {showDesignacionSelector && (
+                <div className="flex flex-col items-end gap-1">
+                  <label className="text-[10px] uppercase tracking-wide text-blue-200/90">Asignatura activa</label>
+                  <select
+                    value={selectedDesignacionId ?? designaciones[0]?.id ?? ""}
+                    onChange={(event) => setSelectedDesignacionId(event.target.value || null)}
+                    className="max-w-[280px] bg-blue-800 border border-blue-700 rounded-lg px-2 py-1 text-xs text-white outline-none focus:border-blue-400"
+                  >
+                    {designaciones.map((designacion, index) => (
+                      <option key={designacion.id ?? `${designacion.asignatura}-${index}`} value={designacion.id ?? `${designacion.asignatura}-${index}`}>
+                        {designacion.asignatura || "Sin asignatura"} · {designacion.rolSistema}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="text-[10px] text-blue-200/90">
+                    Rol académico activo: {selectedDesignacion?.rolSistema ?? "docente"}
+                  </span>
+                </div>
+              )}
             </div>
 
             <NotificacionesBell />
