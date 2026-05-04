@@ -42,6 +42,8 @@ interface UserContextType {
   isResponsableForAsignatura: (asignatura?: string) => boolean;
   selectedDesignacionId: string | null;
   setSelectedDesignacionId: (id: string | null) => void;
+  needsDesignacionSelection: boolean;
+  confirmDesignacionSelection: (id: string) => void;
   selectedDesignacion: AcademicDesignation | null;
   isSelectedDesignacionResponsable: () => boolean;
 }
@@ -148,6 +150,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const [personas, setPersonas] = useState<User[]>(sortPersonas(initialUsers));
   const [user, setUserState] = useState<User>(initialUsers[1] ?? initialUsers[0]);
   const [selectedDesignacionId, setSelectedDesignacionId] = useState<string | null>(null);
+  const [hasConfirmedDesignacionSelection, setHasConfirmedDesignacionSelection] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const isAdmin = user.dni === ADMIN_DNI;
@@ -207,6 +210,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % personasWithoutAdmin.length : 0;
       return personasWithoutAdmin[nextIndex];
     });
+    setHasConfirmedDesignacionSelection(false);
     setIsAuthenticated(true);
   };
 
@@ -214,11 +218,13 @@ export function UserProvider({ children }: { children: ReactNode }) {
     const persona = personas[index];
     if (!persona) return;
     setUserState(persona);
+    setHasConfirmedDesignacionSelection(false);
     setIsAuthenticated(true);
   };
 
   const setUser = (nextUser: User) => {
     setUserState(nextUser);
+    setHasConfirmedDesignacionSelection(false);
     setIsAuthenticated(true);
     setPersonas((prev) => sortPersonas(mergeUniqueUsers(prev, [nextUser])));
   };
@@ -241,6 +247,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       }
 
       setUserState(adminUser);
+      setHasConfirmedDesignacionSelection(true);
       setIsAuthenticated(true);
       setPersonas((prev) => sortPersonas(mergeUniqueUsers([adminUser], prev)));
       return { ok: true };
@@ -281,6 +288,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
     }
 
     setUserState(docente);
+    setHasConfirmedDesignacionSelection(false);
     setIsAuthenticated(true);
     setPersonas((prev) => sortPersonas(mergeUniqueUsers(prev, [docente])));
     return { ok: true };
@@ -288,6 +296,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
   const logout = () => {
     setIsAuthenticated(false);
+    setHasConfirmedDesignacionSelection(false);
   };
 
   const selectedDesignacion = useMemo(() => {
@@ -312,6 +321,35 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
     setSelectedDesignacionId(designaciones[0].id ?? null);
   }, [user.designaciones, selectedDesignacionId]);
+
+  useEffect(() => {
+    const designaciones = user.designaciones ?? [];
+    if (designaciones.length <= 1) {
+      setHasConfirmedDesignacionSelection(true);
+    }
+  }, [user.designaciones]);
+
+  const needsDesignacionSelection = useMemo(() => {
+    const designaciones = user.designaciones ?? [];
+    const isAcademicRole = user.rol === "DOCENTE" || user.rol === "DOCENTE_RESPONSABLE";
+    return isAuthenticated && isAcademicRole && designaciones.length > 1 && !hasConfirmedDesignacionSelection;
+  }, [user.rol, user.designaciones, isAuthenticated, hasConfirmedDesignacionSelection]);
+
+  const confirmDesignacionSelection = (id: string) => {
+    const designaciones = user.designaciones ?? [];
+    if (designaciones.length === 0) {
+      setHasConfirmedDesignacionSelection(true);
+      return;
+    }
+
+    const hasId = designaciones.some((designacion) => designacion.id === id);
+    if (hasId) {
+      setSelectedDesignacionId(id);
+    } else {
+      setSelectedDesignacionId(designaciones[0].id ?? null);
+    }
+    setHasConfirmedDesignacionSelection(true);
+  };
 
   const hasAnyResponsableDesignacion = () => {
     return (user.designaciones ?? []).some((designacion) => designacion.academicRole === "DOCENTE_RESPONSABLE");
@@ -353,6 +391,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
         isResponsableForAsignatura,
         selectedDesignacionId,
         setSelectedDesignacionId,
+        needsDesignacionSelection,
+        confirmDesignacionSelection,
         selectedDesignacion,
         isSelectedDesignacionResponsable,
       }}

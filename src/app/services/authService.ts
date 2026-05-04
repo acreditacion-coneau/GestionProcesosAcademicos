@@ -230,7 +230,7 @@ async function resolveAcademicDesignaciones(user: User): Promise<AcademicDesigna
         const stableFallbackId = `${tableName}-${idDocente}-${index}-${asignatura || "sin_asignatura"}-${rolSistema || "docente"}`;
 
         return {
-          id: getString(row, ["id"], stableFallbackId),
+          id: getString(row, ["id_designacion", "id"], stableFallbackId),
           carrera,
           asignatura,
           cargo,

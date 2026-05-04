@@ -8,10 +8,11 @@ import { SegurosForm } from "./pages/SegurosForm";
 import { RepositoriosView } from "./pages/RepositoriosView";
 import { NotificacionesPage } from "./pages/NotificacionesPage";
 import { LoginPage } from "./pages/LoginPage";
+import { DesignacionSelectionPage } from "./pages/DesignacionSelectionPage";
 import { useUser } from "./context/UserContext";
 
 function AuthGuardLayout() {
-  const { isAuthenticated, isLoading } = useUser();
+  const { isAuthenticated, isLoading, needsDesignacionSelection } = useUser();
 
   if (isLoading) {
     return <div className="min-h-screen flex items-center justify-center text-slate-500">Cargando...</div>;
@@ -21,27 +22,53 @@ function AuthGuardLayout() {
     return <Navigate to="/login" replace />;
   }
 
+  if (needsDesignacionSelection) {
+    return <Navigate to="/seleccionar-designacion" replace />;
+  }
+
   return <Layout />;
 }
 
 function LoginRoute() {
-  const { isAuthenticated, isLoading } = useUser();
+  const { isAuthenticated, isLoading, needsDesignacionSelection } = useUser();
 
   if (isLoading) {
     return <div className="min-h-screen flex items-center justify-center text-slate-500">Cargando...</div>;
   }
 
   if (isAuthenticated) {
-    return <Navigate to="/" replace />;
+    return <Navigate to={needsDesignacionSelection ? "/seleccionar-designacion" : "/"} replace />;
   }
 
   return <LoginPage />;
+}
+
+function DesignacionSelectionRoute() {
+  const { isAuthenticated, isLoading, needsDesignacionSelection } = useUser();
+
+  if (isLoading) {
+    return <div className="min-h-screen flex items-center justify-center text-slate-500">Cargando...</div>;
+  }
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace />;
+  }
+
+  if (!needsDesignacionSelection) {
+    return <Navigate to="/" replace />;
+  }
+
+  return <DesignacionSelectionPage />;
 }
 
 export const router = createBrowserRouter([
   {
     path: "/login",
     Component: LoginRoute,
+  },
+  {
+    path: "/seleccionar-designacion",
+    Component: DesignacionSelectionRoute,
   },
   {
     path: "/",
