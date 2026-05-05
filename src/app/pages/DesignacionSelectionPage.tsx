@@ -5,11 +5,9 @@ import { useUser } from "../context/UserContext";
 
 export function DesignacionSelectionPage() {
   const navigate = useNavigate();
-  const { user, selectedDesignacionId, confirmDesignacionSelection } = useUser();
+  const { user, confirmDesignacionSelection } = useUser();
   const designaciones = user.designaciones ?? [];
-
-  const defaultId = selectedDesignacionId ?? designaciones[0]?.id ?? "";
-  const [localSelectedId, setLocalSelectedId] = useState(defaultId);
+  const [localSelectedId, setLocalSelectedId] = useState("");
 
   const activeDesignacion = useMemo(
     () => designaciones.find((designacion) => designacion.id === localSelectedId) ?? null,
@@ -24,7 +22,7 @@ export function DesignacionSelectionPage() {
 
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4 sm:p-8">
-      <div className="w-full max-w-3xl rounded-2xl bg-white border border-slate-200 shadow-sm overflow-hidden">
+      <div className="w-full max-w-2xl rounded-2xl bg-white border border-slate-200 shadow-sm overflow-hidden">
         <div className="bg-blue-900 text-white p-6 sm:p-8">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center">
@@ -33,61 +31,54 @@ export function DesignacionSelectionPage() {
             <div>
               <h1 className="text-xl sm:text-2xl font-bold leading-tight">Seleccione la materia activa</h1>
               <p className="text-blue-100 text-sm mt-1">
-                Bienvenido, {user.nombre}. Elegí con qué designación vas a trabajar en esta sesión.
+                Bienvenido, {user.nombre}. Esta seleccion define el rol para esta sesion.
               </p>
             </div>
           </div>
         </div>
 
-        <div className="p-6 sm:p-8">
-          <div className="space-y-3">
-            {designaciones.map((designacion, index) => {
-              const optionId = designacion.id ?? `${designacion.asignatura}-${index}`;
-              const isSelected = localSelectedId === optionId;
-              const roleLabel = designacion.academicRole === "DOCENTE_RESPONSABLE" ? "Responsable de Cátedra" : "Docente";
-
-              return (
-                <label
-                  key={optionId}
-                  className={`block rounded-xl border-2 p-4 cursor-pointer transition-colors ${
-                    isSelected ? "border-blue-600 bg-blue-50" : "border-slate-200 bg-white hover:border-slate-300"
-                  }`}
-                >
-                  <div className="flex items-start gap-3">
-                    <input
-                      type="radio"
-                      name="designacion"
-                      value={optionId}
-                      checked={isSelected}
-                      onChange={() => setLocalSelectedId(optionId)}
-                      className="mt-1"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-slate-900">
-                        {designacion.asignatura || "Sin asignatura"}
-                      </p>
-                      <p className="text-xs text-slate-500 mt-1">
-                        Carrera: {designacion.carrera || "Sin carrera"} · Cargo: {designacion.cargo || "Sin cargo"}
-                      </p>
-                      <p className="text-xs mt-1">
-                        <span className={`font-semibold ${designacion.academicRole === "DOCENTE_RESPONSABLE" ? "text-emerald-700" : "text-slate-600"}`}>
-                          Rol: {roleLabel}
-                        </span>
-                      </p>
-                    </div>
-                    {isSelected && <CheckCircle2 className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />}
-                  </div>
-                </label>
-              );
-            })}
+        <div className="p-6 sm:p-8 space-y-5">
+          <div>
+            <label className="block text-sm font-bold text-slate-700 mb-2">Asignatura y rol</label>
+            <select
+              value={localSelectedId}
+              onChange={(event) => setLocalSelectedId(event.target.value)}
+              disabled={designaciones.length === 0}
+              className="w-full rounded-xl border-2 border-slate-200 bg-slate-50 px-4 py-3 text-slate-900 outline-none transition-colors focus:border-blue-600 focus:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <option value="">Seleccione una designacion...</option>
+              {designaciones.map((designacion, index) => {
+                const optionId = designacion.id ?? `${designacion.asignatura}-${index}`;
+                return (
+                  <option key={optionId} value={optionId}>
+                    {designacion.asignatura || "Sin asignatura"} - {designacion.rolSistema || "docente"}
+                  </option>
+                );
+              })}
+            </select>
           </div>
 
-          <div className="mt-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <p className="text-xs text-slate-500">
-              {activeDesignacion
-                ? `Designación seleccionada: ${activeDesignacion.asignatura || "Sin asignatura"} (${activeDesignacion.rolSistema}).`
-                : "Seleccione una designación para continuar."}
+          {activeDesignacion && (
+            <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-950">
+              <div className="flex items-start gap-2">
+                <CheckCircle2 className="w-4 h-4 mt-0.5 text-blue-700 shrink-0" />
+                <div>
+                  <p className="font-semibold">{activeDesignacion.asignatura || "Sin asignatura"}</p>
+                  <p className="text-xs mt-1 text-blue-800">
+                    Carrera: {activeDesignacion.carrera || "Sin carrera"} - Rol: {activeDesignacion.rolSistema || "docente"}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {designaciones.length === 0 && (
+            <p className="text-sm text-red-600 font-medium">
+              No se encontraron designaciones para este docente. Revise la tabla designaciones y las politicas de lectura.
             </p>
+          )}
+
+          <div className="flex justify-end">
             <button
               type="button"
               onClick={handleContinue}

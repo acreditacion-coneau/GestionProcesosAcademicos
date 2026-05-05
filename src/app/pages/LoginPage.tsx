@@ -1,10 +1,8 @@
 ﻿import { useState } from "react";
-import { useNavigate } from "react-router";
 import { useUser } from "../context/UserContext";
 import { User, Lock, Eye, EyeOff, ArrowRight } from "lucide-react";
 
 export function LoginPage() {
-  const navigate = useNavigate();
   const { loginWithCredentials, isLoading } = useUser();
 
   const [dni, setDni] = useState("");
@@ -26,8 +24,6 @@ export function LoginPage() {
       setErrorMessage(result.error ?? "No se pudo iniciar sesión.");
       return;
     }
-
-    navigate("/", { replace: true });
   };
 
   return (
@@ -74,7 +70,7 @@ export function LoginPage() {
                       ? "border-red-400 focus:border-red-500 bg-red-50"
                       : "border-slate-200 focus:border-blue-600 focus:bg-white"
                   }`}
-                  placeholder="Ej: 12345678 o admin"
+                  placeholder="Ej: 12345678"
                 />
               </div>
             </div>
@@ -109,7 +105,7 @@ export function LoginPage() {
               <p className="text-sm text-red-500 font-medium">{errorMessage}</p>
             ) : (
               <p className="text-sm text-slate-500">
-                Usuarios: contraseña igual al DNI. Admin: usuario <strong>admin</strong> y contraseña <strong>ucasal2022</strong>.
+                Usuarios docentes: contraseña igual al DNI.
               </p>
             )}
 

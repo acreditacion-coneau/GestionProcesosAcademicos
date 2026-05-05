@@ -143,13 +143,20 @@ function sortPersonas(users: User[]): User[] {
   return [...admin, ...others];
 }
 
+function isBypassSelectionRole(role: Role): boolean {
+  return role === "ADMINISTRATIVO"
+    || role === "SECRETARIA"
+    || role === "SEC_TECNICA"
+    || role === "JEFE_CARRERA";
+}
+
 const initialUsers = mergeUniqueUsers([adminUser], fallbackPersonas);
 const UserContext = createContext<UserContextType | undefined>(undefined);
 
 export function UserProvider({ children }: { children: ReactNode }) {
   const [personas, setPersonas] = useState<User[]>(sortPersonas(initialUsers));
   const [user, setUserState] = useState<User>(initialUsers[1] ?? initialUsers[0]);
-  const [selectedDesignacionId, setSelectedDesignacionId] = useState<string | null>(null);
+  const [selectedDesignacionId, setSelectedDesignacionIdState] = useState<string | null>(null);
   const [hasConfirmedDesignacionSelection, setHasConfirmedDesignacionSelection] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -170,12 +177,11 @@ export function UserProvider({ children }: { children: ReactNode }) {
         const profesoresRaw = await getProfesoresFromSupabase();
         if (!active) return;
 
-        const profesores = profesoresRaw.filter((profesor) => {
-          const nombre = profesor.nombre.trim().toLowerCase();
-          return Boolean(nombre) && nombre !== "docente";
-        });
+        const profesores = profesoresRaw.filter((profesor) => Boolean(profesor.nombre.trim()));
 
-        const merged = sortPersonas(mergeUniqueUsers([adminUser], profesores, fallbackPersonas));
+        const merged = sortPersonas(hasSupabaseConfig
+          ? mergeUniqueUsers([adminUser], profesores)
+          : mergeUniqueUsers([adminUser], profesores, fallbackPersonas));
         setPersonas(merged);
 
         if (!isAuthenticated) {
@@ -208,9 +214,11 @@ export function UserProvider({ children }: { children: ReactNode }) {
     setUserState((prev) => {
       const currentIndex = personasWithoutAdmin.findIndex((p) => p.dni === prev.dni);
       const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % personasWithoutAdmin.length : 0;
-      return personasWithoutAdmin[nextIndex];
+      const nextPersona = personasWithoutAdmin[nextIndex];
+      setSelectedDesignacionIdState(nextPersona.designaciones?.[0]?.id ?? null);
+      return nextPersona;
     });
-    setHasConfirmedDesignacionSelection(false);
+    setHasConfirmedDesignacionSelection(true);
     setIsAuthenticated(true);
   };
 
@@ -218,12 +226,14 @@ export function UserProvider({ children }: { children: ReactNode }) {
     const persona = personas[index];
     if (!persona) return;
     setUserState(persona);
-    setHasConfirmedDesignacionSelection(false);
+    setSelectedDesignacionIdState(persona.designaciones?.[0]?.id ?? null);
+    setHasConfirmedDesignacionSelection(true);
     setIsAuthenticated(true);
   };
 
   const setUser = (nextUser: User) => {
     setUserState(nextUser);
+    setSelectedDesignacionIdState(null);
     setHasConfirmedDesignacionSelection(false);
     setIsAuthenticated(true);
     setPersonas((prev) => sortPersonas(mergeUniqueUsers(prev, [nextUser])));
@@ -247,6 +257,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
       }
 
       setUserState(adminUser);
+      setSelectedDesignacionIdState(null);
       setHasConfirmedDesignacionSelection(true);
       setIsAuthenticated(true);
       setPersonas((prev) => sortPersonas(mergeUniqueUsers([adminUser], prev)));
@@ -262,7 +273,9 @@ export function UserProvider({ children }: { children: ReactNode }) {
       return { ok: false, error: "Por ahora, la contraseña es el mismo DNI." };
     }
 
-    const docenteFallback = personas.find((p) => p.dni === normalizedDni) ?? fallbackPersonas.find((p) => p.dni === normalizedDni);
+    const docenteFallback = hasSupabaseConfig
+      ? null
+      : personas.find((p) => p.dni === normalizedDni) ?? fallbackPersonas.find((p) => p.dni === normalizedDni);
     if (!hasSupabaseConfig && !docenteFallback) {
       return {
         ok: false,
@@ -288,6 +301,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
     }
 
     setUserState(docente);
+    setSelectedDesignacionIdState(null);
     setHasConfirmedDesignacionSelection(false);
     setIsAuthenticated(true);
     setPersonas((prev) => sortPersonas(mergeUniqueUsers(prev, [docente])));
@@ -302,15 +316,34 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const selectedDesignacion = useMemo(() => {
     const designaciones = user.designaciones ?? [];
     if (designaciones.length === 0) return null;
-    if (!selectedDesignacionId) return designaciones[0];
-    return designaciones.find((designacion) => designacion.id === selectedDesignacionId) ?? designaciones[0];
+    if (!selectedDesignacionId) return null;
+    return designaciones.find((designacion) => designacion.id === selectedDesignacionId) ?? null;
   }, [user.designaciones, selectedDesignacionId]);
+
+  const setSelectedDesignacionId = (id: string | null) => {
+    if (!id) {
+      setSelectedDesignacionIdState(null);
+      return;
+    }
+
+    const selected = (user.designaciones ?? []).find((designacion) => designacion.id === id);
+    if (!selected) return;
+
+    setSelectedDesignacionIdState(selected.id ?? null);
+    setUserState((prev) => ({
+      ...prev,
+      rol: selected.academicRole,
+      materia: selected.asignatura || prev.materia,
+      carrera: selected.carrera ? (selected.carrera as Carrera) : prev.carrera,
+      cargo: selected.cargo ? (selected.cargo as Cargo) : prev.cargo,
+    }));
+  };
 
   useEffect(() => {
     const designaciones = user.designaciones ?? [];
     if (designaciones.length === 0) {
       if (selectedDesignacionId !== null) {
-        setSelectedDesignacionId(null);
+        setSelectedDesignacionIdState(null);
       }
       return;
     }
@@ -319,35 +352,23 @@ export function UserProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    setSelectedDesignacionId(designaciones[0].id ?? null);
+    if (selectedDesignacionId !== null) {
+      setSelectedDesignacionIdState(null);
+    }
   }, [user.designaciones, selectedDesignacionId]);
 
-  useEffect(() => {
-    const designaciones = user.designaciones ?? [];
-    if (designaciones.length <= 1) {
-      setHasConfirmedDesignacionSelection(true);
-    }
-  }, [user.designaciones]);
-
   const needsDesignacionSelection = useMemo(() => {
-    const designaciones = user.designaciones ?? [];
-    const isAcademicRole = user.rol === "DOCENTE" || user.rol === "DOCENTE_RESPONSABLE";
-    return isAuthenticated && isAcademicRole && designaciones.length > 1 && !hasConfirmedDesignacionSelection;
+    return isAuthenticated && !isBypassSelectionRole(user.rol) && !hasConfirmedDesignacionSelection;
   }, [user.rol, user.designaciones, isAuthenticated, hasConfirmedDesignacionSelection]);
 
   const confirmDesignacionSelection = (id: string) => {
     const designaciones = user.designaciones ?? [];
     if (designaciones.length === 0) {
-      setHasConfirmedDesignacionSelection(true);
       return;
     }
 
-    const hasId = designaciones.some((designacion) => designacion.id === id);
-    if (hasId) {
-      setSelectedDesignacionId(id);
-    } else {
-      setSelectedDesignacionId(designaciones[0].id ?? null);
-    }
+    const selected = designaciones.find((designacion) => designacion.id === id) ?? designaciones[0];
+    setSelectedDesignacionId(selected.id ?? null);
     setHasConfirmedDesignacionSelection(true);
   };
 

@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Outlet, NavLink } from "react-router";
 import { Check, ChevronDown, PanelLeft, Search, Shield, UserCircle, Wrench } from "lucide-react";
 import { useUser } from "../context/UserContext";
@@ -7,11 +7,11 @@ import { LayoutProvider, useLayoutState } from "../context/LayoutContext";
 
 const ROL_LABELS: Record<string, string> = {
   DOCENTE: "Docente",
-  DOCENTE_RESPONSABLE: "Responsable de Cátedra",
+  DOCENTE_RESPONSABLE: "Responsable de Catedra",
   JEFE_CARRERA: "Jefe de Carrera",
-  SECRETARIA: "Secretaría Académica",
-  ADMINISTRATIVO: "Mesa de Ayuda",
-  SEC_TECNICA: "Secretaría Técnica",
+  SECRETARIA: "Secretaria Academica",
+  ADMINISTRATIVO: "Administrador / Mesa",
+  SEC_TECNICA: "Secretaria Tecnica",
 };
 
 function LayoutInner() {
@@ -47,10 +47,10 @@ function LayoutInner() {
     return personas.filter((persona) => {
       const rol = (ROL_LABELS[persona.rol] ?? persona.rol).toLowerCase();
       return (
-        persona.nombre.toLowerCase().includes(query) ||
-        persona.dni.includes(query) ||
-        persona.carrera.toLowerCase().includes(query) ||
-        rol.includes(query)
+        persona.nombre.toLowerCase().includes(query)
+        || persona.dni.includes(query)
+        || persona.carrera.toLowerCase().includes(query)
+        || rol.includes(query)
       );
     });
   }, [personas, searchPersona]);
@@ -68,8 +68,8 @@ function LayoutInner() {
             <button
               onClick={toggleSidebar}
               className="w-10 h-10 rounded-lg bg-blue-800 hover:bg-blue-700 border border-blue-700 flex items-center justify-center transition-colors"
-              title={isSidebarCollapsed ? "Expandir menú lateral" : "Ocultar menú lateral"}
-              aria-label={isSidebarCollapsed ? "Expandir menú lateral" : "Ocultar menú lateral"}
+              title={isSidebarCollapsed ? "Expandir menu lateral" : "Ocultar menu lateral"}
+              aria-label={isSidebarCollapsed ? "Expandir menu lateral" : "Ocultar menu lateral"}
             >
               <PanelLeft className="w-5 h-5 text-white" />
             </button>
@@ -86,7 +86,7 @@ function LayoutInner() {
               </div>
               <div>
                 <h1 className="text-xl font-bold leading-tight">Portal Docente</h1>
-                <p className="text-blue-200 text-xs">Autogestión Académica</p>
+                <p className="text-blue-200 text-xs">Autogestion Academica</p>
               </div>
             </NavLink>
           </div>
@@ -95,24 +95,24 @@ function LayoutInner() {
             <div className="hidden lg:flex flex-col text-right gap-1.5">
               <span className="font-medium text-sm">{user.nombre}</span>
               <span className="text-blue-200 text-xs">
-                {ROL_LABELS[user.rol] ?? user.rol} · {user.carrera === "Todas" ? "Todas las carreras" : user.carrera}
+                {ROL_LABELS[user.rol] ?? user.rol} - {user.carrera === "Todas" ? "Todas las carreras" : user.carrera}
               </span>
               {showDesignacionSelector && (
                 <div className="flex flex-col items-end gap-1">
                   <label className="text-[10px] uppercase tracking-wide text-blue-200/90">Asignatura activa</label>
                   <select
-                    value={selectedDesignacionId ?? designaciones[0]?.id ?? ""}
+                    value={selectedDesignacionId ?? ""}
                     onChange={(event) => setSelectedDesignacionId(event.target.value || null)}
                     className="max-w-[280px] bg-blue-800 border border-blue-700 rounded-lg px-2 py-1 text-xs text-white outline-none focus:border-blue-400"
                   >
                     {designaciones.map((designacion, index) => (
                       <option key={designacion.id ?? `${designacion.asignatura}-${index}`} value={designacion.id ?? `${designacion.asignatura}-${index}`}>
-                        {designacion.asignatura || "Sin asignatura"} · {designacion.rolSistema}
+                        {designacion.asignatura || "Sin asignatura"} - {designacion.rolSistema}
                       </option>
                     ))}
                   </select>
                   <span className="text-[10px] text-blue-200/90">
-                    Rol académico activo: {selectedDesignacion?.rolSistema ?? "docente"}
+                    Rol academico activo: {selectedDesignacion?.rolSistema ?? "docente"}
                   </span>
                 </div>
               )}
@@ -124,16 +124,16 @@ function LayoutInner() {
               <button
                 onClick={() => setDropdownOpen((prev) => !prev)}
                 className="flex items-center gap-2 text-xs bg-blue-800 hover:bg-blue-700 px-3 py-1.5 rounded-xl border border-blue-700 transition-colors"
-                title="Cambiar vista de usuario"
+                title="Simular una vista para demostracion"
               >
-                <span>{isAdmin ? "Vista admin" : "Vista"}: {ROL_LABELS[user.rol] ?? user.rol}</span>
+                <span>{isAdmin ? "Admin" : "Vista"}: {ROL_LABELS[user.rol] ?? user.rol}</span>
                 <ChevronDown className={`w-3 h-3 transition-transform ${dropdownOpen ? "rotate-180" : ""}`} />
               </button>
 
               {dropdownOpen && (
-                <div className="absolute right-0 mt-2 w-72 bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden animate-in fade-in slide-in-from-top-2 z-50">
+                <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden animate-in fade-in slide-in-from-top-2 z-50">
                   <div className="px-4 py-2 bg-slate-50 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-wide">
-                    Simular vista (rol)
+                    Simular vista
                   </div>
 
                   <div className="px-3 py-2 border-b border-slate-100">
@@ -172,7 +172,7 @@ function LayoutInner() {
                               {persona.nombre}
                             </p>
                             <p className="text-xs text-slate-500 mt-0.5 truncate">
-                              {ROL_LABELS[persona.rol] ?? persona.rol} · {persona.carrera}
+                              {ROL_LABELS[persona.rol] ?? persona.rol} - {persona.carrera}
                             </p>
                           </div>
                           {isSelected && <Check className="w-4 h-4 text-blue-600 mt-1 shrink-0" />}
@@ -197,7 +197,7 @@ function LayoutInner() {
 
       <footer className="bg-slate-100 border-t border-slate-200 mt-auto">
         <div className="w-full px-4 md:px-8 lg:px-10 py-6 text-center text-slate-500 text-sm">
-          &copy; 2026 FAUD - Sistema de Autogestión Docente
+          &copy; 2026 FAUD - Sistema de Autogestion Docente
         </div>
       </footer>
     </div>

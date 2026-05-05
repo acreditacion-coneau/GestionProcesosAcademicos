@@ -6,7 +6,6 @@ type GenericRow = Record<string, unknown>;
 const QUERY_TIMEOUT_MS = Number(import.meta.env.VITE_SUPABASE_TIMEOUT_MS ?? 2500);
 const configuredRolesTable = (import.meta.env.VITE_SUPABASE_ROLES_TABLE ?? "designaciones").trim();
 const ROLES_TABLE_CANDIDATES = Array.from(new Set([configuredRolesTable, "designaciones", "designacioens"]));
-const USER_TABLE_CANDIDATES = ["usuarios", "users", "profiles", "perfiles"];
 
 function getString(row: GenericRow, keys: string[], fallback = ""): string {
   for (const key of keys) {
@@ -24,25 +23,6 @@ function normalizeToken(raw: string): string {
     .toUpperCase()
     .replace(/[^A-Z0-9]+/g, "_")
     .replace(/^_+|_+$/g, "");
-}
-
-function normalizeGeneralRole(rawRole: string): Role {
-  const role = normalizeToken(rawRole);
-  const map: Record<string, Role> = {
-    DOCENTE: "DOCENTE",
-    DOCENTE_RESPONSABLE: "DOCENTE",
-    RESPONSABLE: "DOCENTE",
-    RESPONSABLE_CATEDRA: "DOCENTE",
-    RESPONSABLE_DE_CATEDRA: "DOCENTE",
-    JEFE_CARRERA: "JEFE_CARRERA",
-    JEFE_DE_CARRERA: "JEFE_CARRERA",
-    SECRETARIA: "SECRETARIA",
-    SECRETARIA_ACADEMICA: "SECRETARIA",
-    ADMINISTRATIVO: "ADMINISTRATIVO",
-    SEC_TECNICA: "SEC_TECNICA",
-    SECRETARIA_TECNICA: "SEC_TECNICA",
-  };
-  return map[role] ?? "DOCENTE";
 }
 
 function normalizeAcademicRole(rawRole: string): "DOCENTE" | "DOCENTE_RESPONSABLE" {
@@ -107,6 +87,61 @@ function mapDocenteRowToUser(row: GenericRow): User | null {
   };
 }
 
+function mapDesignacionRowToAcademicDesignation(
+  row: GenericRow,
+  index: number,
+  idDocente: string,
+  fallbackCarrera: string,
+): AcademicDesignation {
+  const rolSistema = getString(row, ["rol_sistema"], "docente");
+  const asignatura = getString(row, ["asignatura"], "");
+  const carrera = getString(row, ["carrera"], fallbackCarrera);
+  const cargo = getString(row, ["cargo"], "");
+  const stableFallbackId = `designaciones-${idDocente}-${index}-${asignatura || "sin_asignatura"}-${rolSistema || "docente"}`;
+
+  return {
+    id: getString(row, ["id_designacion"], stableFallbackId),
+    carrera,
+    asignatura,
+    cargo,
+    rolSistema,
+    academicRole: normalizeAcademicRole(rolSistema),
+  };
+}
+
+function getGeneralRoleFromDesignaciones(designaciones: AcademicDesignation[]): Role {
+  return designaciones.some((designacion) => designacion.academicRole === "DOCENTE_RESPONSABLE")
+    ? "DOCENTE_RESPONSABLE"
+    : "DOCENTE";
+}
+
+function applyDesignacionesToUser(user: User, designaciones: AcademicDesignation[]): User {
+  const materiaPrimaria = designaciones[0]?.asignatura?.trim();
+  const carreraPrimaria = designaciones[0]?.carrera?.trim();
+  const cargoPrimario = designaciones[0]?.cargo?.trim();
+
+  return {
+    ...user,
+    rol: getGeneralRoleFromDesignaciones(designaciones),
+    materia: materiaPrimaria || user.materia,
+    carrera: normalizeCarrera(carreraPrimaria || user.carrera),
+    cargo: normalizeCargo(cargoPrimario || user.cargo),
+    designaciones,
+  };
+}
+
+function mapDocenteRowWithDesignacionesToUser(row: GenericRow): User | null {
+  const user = mapDocenteRowToUser(row);
+  if (!user) return null;
+
+  const rows = Array.isArray(row.designaciones) ? row.designaciones : [];
+  const designaciones = rows.map((designacion, index) =>
+    mapDesignacionRowToAcademicDesignation(designacion as GenericRow, index, user.idDocente ?? user.dni, user.carrera),
+  );
+
+  return applyDesignacionesToUser(user, designaciones);
+}
+
 function mapRpcRowToUser(row: GenericRow): User | null {
   const dni = getString(row, ["dni"], "").replace(/\D/g, "");
   if (!dni) return null;
@@ -151,55 +186,14 @@ async function findDocenteByDni(dni: string): Promise<User | null> {
       .abortSignal(controller.signal)
       .maybeSingle();
 
-    if (error) {
-      if (isRecoverableError(error)) return null;
-      return null;
-    }
+    if (error) return null;
 
     if (!data) return null;
-    return mapDocenteRowToUser(data as GenericRow);
+    const docente = mapDocenteRowToUser(data as GenericRow);
+    return docente ? enrichUserWithRoles(docente) : null;
   } finally {
     clearTimeout(timer);
   }
-}
-
-async function resolveGeneralRole(user: User): Promise<Role> {
-  const idDocente = user.idDocente?.trim() ?? "";
-  const dni = user.dni.replace(/\D/g, "");
-
-  for (const tableName of USER_TABLE_CANDIDATES) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), QUERY_TIMEOUT_MS);
-
-    try {
-      const attempts = [
-        idDocente ? supabase.from(tableName).select("rol").eq("id_docente", idDocente).limit(1) : null,
-        dni ? supabase.from(tableName).select("rol").eq("dni", dni).limit(1) : null,
-        user.email ? supabase.from(tableName).select("rol").eq("email", user.email).limit(1) : null,
-      ].filter(Boolean);
-
-      for (const attempt of attempts) {
-        const { data, error } = await attempt!.abortSignal(controller.signal).maybeSingle();
-        if (error) {
-          if (isRecoverableError(error)) continue;
-          continue;
-        }
-        if (!data) continue;
-
-        const rol = getString(data as GenericRow, ["rol"], "");
-        if (!rol) continue;
-        return normalizeGeneralRole(rol);
-      }
-    } catch (error) {
-      if (!isRecoverableError(error)) {
-        console.warn(`No se pudo resolver rol general en ${tableName}:`, error);
-      }
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-
-  return "DOCENTE";
 }
 
 async function resolveAcademicDesignaciones(user: User): Promise<AcademicDesignation[]> {
@@ -222,22 +216,9 @@ async function resolveAcademicDesignaciones(user: User): Promise<AcademicDesigna
         continue;
       }
 
-      const designaciones = ((data ?? []) as GenericRow[]).map((row, index) => {
-        const rolSistema = getString(row, ["rol_sistema", "rol", "role"], "docente");
-        const asignatura = getString(row, ["asignatura"], "");
-        const carrera = getString(row, ["carrera"], user.carrera);
-        const cargo = getString(row, ["cargo"], "");
-        const stableFallbackId = `${tableName}-${idDocente}-${index}-${asignatura || "sin_asignatura"}-${rolSistema || "docente"}`;
-
-        return {
-          id: getString(row, ["id_designacion", "id"], stableFallbackId),
-          carrera,
-          asignatura,
-          cargo,
-          rolSistema,
-          academicRole: normalizeAcademicRole(rolSistema),
-        } satisfies AcademicDesignation;
-      });
+      const designaciones = ((data ?? []) as GenericRow[]).map((row, index) =>
+        mapDesignacionRowToAcademicDesignation(row, index, idDocente, user.carrera),
+      );
 
       if (designaciones.length > 0) return designaciones;
     } catch (error) {
@@ -253,23 +234,8 @@ async function resolveAcademicDesignaciones(user: User): Promise<AcademicDesigna
 }
 
 async function enrichUserWithRoles(user: User): Promise<User> {
-  const [rolGeneral, designaciones] = await Promise.all([
-    resolveGeneralRole(user),
-    resolveAcademicDesignaciones(user),
-  ]);
-
-  const materiaPrimaria = designaciones[0]?.asignatura?.trim();
-  const carreraPrimaria = designaciones[0]?.carrera?.trim();
-  const cargoPrimario = designaciones[0]?.cargo?.trim();
-
-  return {
-    ...user,
-    rol: rolGeneral,
-    materia: materiaPrimaria || user.materia,
-    carrera: normalizeCarrera(carreraPrimaria || user.carrera),
-    cargo: normalizeCargo(cargoPrimario || user.cargo),
-    designaciones,
-  };
+  const designaciones = await resolveAcademicDesignaciones(user);
+  return applyDesignacionesToUser(user, designaciones);
 }
 
 function dedupeUsers(users: User[]): User[] {
@@ -292,17 +258,15 @@ export async function loginByDni(dni: string): Promise<User | null> {
   const cleanDni = dni.replace(/\D/g, "");
   if (!cleanDni) return null;
 
-  let baseUser: User | null = null;
+  let baseUser = await findDocenteByDni(cleanDni);
   let rpcErrorMessage = "";
 
-  try {
-    baseUser = await loginByDniRpc(cleanDni);
-  } catch (error) {
-    rpcErrorMessage = error instanceof Error ? error.message : "Fallo desconocido en RPC de login.";
-  }
-
   if (!baseUser) {
-    baseUser = await findDocenteByDni(cleanDni);
+    try {
+      baseUser = await loginByDniRpc(cleanDni);
+    } catch (error) {
+      rpcErrorMessage = error instanceof Error ? error.message : "Fallo desconocido en RPC de login.";
+    }
   }
 
   if (!baseUser) {
@@ -322,23 +286,84 @@ export async function getProfesoresFromSupabase(): Promise<User[]> {
   try {
     const { data, error } = await supabase
       .from("docentes")
-      .select("*")
-      .limit(1000)
+      .select("*, designaciones(*)")
+      .order("apellido", { ascending: true })
+      .order("nombre", { ascending: true })
+      .limit(5000)
       .abortSignal(controller.signal);
 
     if (error) {
-      if (!isRecoverableError(error)) {
-        console.warn("No se pudo cargar docentes desde Supabase:", error);
+      if (isRecoverableError(error)) {
+        return getProfesoresFromSupabaseFallback();
       }
+
+      console.warn("No se pudo cargar docentes desde Supabase:", error);
       return [];
     }
 
     const docentesBase = dedupeUsers(((data ?? []) as GenericRow[])
-      .map((row) => mapDocenteRowToUser(row))
+      .map((row) => mapDocenteRowWithDesignacionesToUser(row))
       .filter((item): item is User => Boolean(item)));
 
-    const enriched = await Promise.all(docentesBase.map((docente) => enrichUserWithRoles(docente)));
-    return enriched;
+    return docentesBase;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function getProfesoresFromSupabaseFallback(): Promise<User[]> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), QUERY_TIMEOUT_MS);
+
+  try {
+    const [docentesResult, designacionesResult] = await Promise.all([
+      supabase
+        .from("docentes")
+        .select("*")
+        .order("apellido", { ascending: true })
+        .order("nombre", { ascending: true })
+        .limit(5000)
+        .abortSignal(controller.signal),
+      supabase
+        .from("designaciones")
+        .select("*")
+        .limit(10000)
+        .abortSignal(controller.signal),
+    ]);
+
+    if (docentesResult.error) {
+      if (!isRecoverableError(docentesResult.error)) {
+        console.warn("No se pudo cargar docentes desde Supabase:", docentesResult.error);
+      }
+      return [];
+    }
+
+    const designacionesByDocente = new Map<string, GenericRow[]>();
+    if (!designacionesResult.error) {
+      for (const row of (designacionesResult.data ?? []) as GenericRow[]) {
+        const idDocente = getString(row, ["id_docente"], "");
+        if (!idDocente) continue;
+
+        const rows = designacionesByDocente.get(idDocente) ?? [];
+        rows.push(row);
+        designacionesByDocente.set(idDocente, rows);
+      }
+    } else if (!isRecoverableError(designacionesResult.error)) {
+      console.warn("No se pudo cargar designaciones desde Supabase:", designacionesResult.error);
+    }
+
+    return dedupeUsers(((docentesResult.data ?? []) as GenericRow[])
+      .map((row) => {
+        const user = mapDocenteRowToUser(row);
+        if (!user) return null;
+
+        const rows = designacionesByDocente.get(user.idDocente ?? "") ?? [];
+        const designaciones = rows.map((designacion, index) =>
+          mapDesignacionRowToAcademicDesignation(designacion, index, user.idDocente ?? user.dni, user.carrera),
+        );
+        return applyDesignacionesToUser(user, designaciones);
+      })
+      .filter((item): item is User => Boolean(item)));
   } finally {
     clearTimeout(timer);
   }
