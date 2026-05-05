@@ -103,9 +103,9 @@ function mapUsuarioRowToUser(row: GenericRow): User | null {
 
   const nombre = getString(row, ["nombre"], "");
   const apellido = getString(row, ["apellido"], "");
-  if (!nombre && !apellido) return null;
+  if (!nombre) return null;
 
-  const globalRole = normalizeGlobalRole(getString(row, ["rol"], "docente"));
+  const globalRole = normalizeGlobalRole(getString(row, ["rol_global", "rol", "role"], "docente"));
 
   return {
     idUsuario: getString(row, ["id_usuario"], "") || undefined,
@@ -171,8 +171,20 @@ async function loginUsuarioByDniRpc(dni: string): Promise<User | null> {
   const pDni = normalizeDniInput(dni);
   console.log("DNI enviado:", pDni);
 
-  const { data, error } = await supabase.rpc("login_usuario_by_dni", { p_dni: pDni });
-  console.log("Respuesta RPC:", data);
+  const dniClean = String(dni)
+  .replace(/\./g, '')
+  .trim();
+
+console.log("DNI ingresado:", dni);
+console.log("DNI limpio:", dniClean);
+
+const { data, error } = await supabase.rpc('login_usuario_by_dni', {
+  p_dni: dniClean
+});
+
+console.log("Respuesta RPC:", data);
+console.log("Primer elemento:", JSON.stringify(data[0]));
+console.log("Error RPC:", error);
 
   if (error) {
     throw error;
@@ -183,7 +195,8 @@ async function loginUsuarioByDniRpc(dni: string): Promise<User | null> {
   }
 
   const userRow = Array.isArray(data) ? data[0] : data;
-  return mapUsuarioRowToUser((userRow ?? {}) as GenericRow);
+  const row = { ...(userRow ?? {}), dni } as GenericRow;
+  return mapUsuarioRowToUser(row);
 }
 
 async function findUsuarioByDni(dni: string): Promise<User | null> {
