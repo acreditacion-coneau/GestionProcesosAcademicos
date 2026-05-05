@@ -26,6 +26,9 @@ export type Role =
 export type Carrera = "Arquitectura" | "Lic. en Diseño de Interiores" | "Diseño Industrial" | "Lic. en Gestión Eficiente de la Energía" | "Todas";
 export type Cargo = "Titular" | "Asociado" | "Adjunto" | "Auxiliar" | "Ayudante" | "Adscripto" | "Administrativo";
 export type EntryMode = "institutional" | "academic" | null;
+export type AccessMode =
+  | { tipo: "institucional"; rol: GlobalRole }
+  | { tipo: "academico"; materias: AcademicDesignation[] };
 
 export interface AcademicDesignation {
   id?: string;
@@ -70,6 +73,7 @@ interface UserContextType {
   confirmDesignacionSelection: (id: string) => void;
   confirmInstitutionalMode: () => void;
   entryMode: EntryMode;
+  accessModes: AccessMode[];
   selectedDesignacion: AcademicDesignation | null;
   isSelectedDesignacionResponsable: () => boolean;
 }
@@ -122,6 +126,17 @@ const fallbackPersonas: User[] = [
     rol: "DOCENTE",
     globalRole: "docente",
     email: "c.gomez@faud.edu.ar",
+    idDocente: "demo-docente-1",
+    designaciones: [
+      {
+        id: "demo-designacion-docente",
+        carrera: "Arquitectura",
+        asignatura: "Matematica II",
+        cargo: "Auxiliar",
+        rolSistema: "docente",
+        academicRole: "DOCENTE",
+      },
+    ],
   },
   {
     nombre: "Ana",
@@ -133,6 +148,17 @@ const fallbackPersonas: User[] = [
     rol: "DOCENTE_RESPONSABLE",
     globalRole: "docente",
     email: "a.sanchez@faud.edu.ar",
+    idDocente: "demo-docente-2",
+    designaciones: [
+      {
+        id: "demo-designacion-responsable",
+        carrera: "Diseno Industrial",
+        asignatura: "Morfologia",
+        cargo: "Titular",
+        rolSistema: "responsable",
+        academicRole: "DOCENTE_RESPONSABLE",
+      },
+    ],
   },
   {
     nombre: "Decano",
@@ -211,6 +237,29 @@ function sortPersonas(users: User[]): User[] {
   return [...users].sort((a, b) => `${a.apellido ?? ""} ${a.nombre}`.localeCompare(`${b.apellido ?? ""} ${b.nombre}`, "es", { sensitivity: "base" }));
 }
 
+function normalizeDniInput(value: string): string {
+  return String(value).trim().replace(/[.\s]/g, "");
+}
+
+function buildAccessModesForUser(target: User): AccessMode[] {
+  const modes: AccessMode[] = [];
+  const designaciones = target.designaciones ?? [];
+
+  if (target.globalRole && target.globalRole !== "docente") {
+    modes.push({ tipo: "institucional", rol: target.globalRole });
+  }
+
+  if (target.idDocente && designaciones.length > 0) {
+    modes.push({ tipo: "academico", materias: designaciones });
+  }
+
+  if (modes.length === 0) {
+    modes.push({ tipo: "institucional", rol: target.globalRole ?? "docente" });
+  }
+
+  return modes;
+}
+
 const initialUsers = mergeUniqueUsers([adminUser], fallbackPersonas);
 const UserContext = createContext<UserContextType | undefined>(undefined);
 
@@ -225,6 +274,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const isAdmin = user.rol === "DECANO" || user.dni === ADMIN_DNI;
 
   const personasWithoutAdmin = useMemo(() => personas.filter((p) => p.dni !== ADMIN_DNI), [personas]);
+  const accessModes = useMemo(() => buildAccessModesForUser(user), [user]);
 
   useEffect(() => {
     let active = true;
@@ -308,8 +358,9 @@ export function UserProvider({ children }: { children: ReactNode }) {
   };
 
   const loginWithCredentials = async (rawDni: string, rawPassword: string): Promise<{ ok: boolean; error?: string }> => {
-    const dniInput = rawDni.trim();
-    const passwordInput = rawPassword.trim();
+    const dniInput = normalizeDniInput(rawDni);
+    const passwordInput = normalizeDniInput(rawPassword);
+    console.log("Login DNI normalizado:", dniInput);
 
     if (!dniInput) return { ok: false, error: "Ingrese un DNI o usuario." };
     if (!passwordInput) return { ok: false, error: "Ingrese una contrasena." };
@@ -325,8 +376,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
       return { ok: true };
     }
 
-    const normalizedDni = dniInput.replace(/\D/g, "");
-    if (!normalizedDni) return { ok: false, error: "Ingrese un DNI valido (solo numeros)." };
+    const normalizedDni = dniInput;
+    if (!normalizedDni || !/^\d+$/.test(normalizedDni)) return { ok: false, error: "Ingrese un DNI valido (solo numeros)." };
     if (passwordInput !== normalizedDni) return { ok: false, error: "Por ahora, la contrasena es el mismo DNI." };
 
     const fallback = hasSupabaseConfig ? null : personas.find((p) => p.dni === normalizedDni) ?? fallbackPersonas.find((p) => p.dni === normalizedDni);
@@ -345,11 +396,29 @@ export function UserProvider({ children }: { children: ReactNode }) {
       return { ok: false, error: loginErrorMessage || "DNI no encontrado en la tabla usuarios." };
     }
 
-    const needsModeSelection = Boolean(loggedUser.idDocente && ((loggedUser.designaciones ?? []).length > 0 || loggedUser.globalRole !== "docente"));
-    setUserState(needsModeSelection ? loggedUser : applyInstitutionalRole(loggedUser));
-    setSelectedDesignacionIdState(null);
-    setHasConfirmedEntryMode(!needsModeSelection);
-    setEntryMode(needsModeSelection ? null : "institutional");
+    const modes = buildAccessModesForUser(loggedUser);
+    console.log("Modos de acceso detectados:", modes);
+
+    if (modes.length > 1) {
+      setUserState(loggedUser);
+      setSelectedDesignacionIdState(null);
+      setHasConfirmedEntryMode(false);
+      setEntryMode(null);
+    } else {
+      const [singleMode] = modes;
+      if (singleMode.tipo === "academico") {
+        const selected = singleMode.materias[0];
+        setUserState(applyAcademicRole(loggedUser, selected));
+        setSelectedDesignacionIdState(selected?.id ?? null);
+        setEntryMode("academic");
+      } else {
+        setUserState(applyInstitutionalRole(loggedUser));
+        setSelectedDesignacionIdState(null);
+        setEntryMode("institutional");
+      }
+      setHasConfirmedEntryMode(true);
+    }
+
     setIsAuthenticated(true);
     setPersonas((prev) => sortPersonas(mergeUniqueUsers(prev, [loggedUser])));
     return { ok: true };
@@ -385,19 +454,20 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
   const needsDesignacionSelection = useMemo(() => {
     if (!isAuthenticated || hasConfirmedEntryMode) return false;
-    if (!user.idDocente) return false;
-    return (user.designaciones ?? []).length > 0 || user.globalRole !== "docente";
-  }, [user.idDocente, user.globalRole, user.designaciones, isAuthenticated, hasConfirmedEntryMode]);
+    return accessModes.length > 1;
+  }, [accessModes, isAuthenticated, hasConfirmedEntryMode]);
 
   const confirmDesignacionSelection = (id: string) => {
     const selected = (user.designaciones ?? []).find((designacion) => designacion.id === id);
     if (!selected) return;
+    console.log("Seleccion de rol academico:", selected);
     setSelectedDesignacionId(selected.id ?? null);
     setEntryMode("academic");
     setHasConfirmedEntryMode(true);
   };
 
   const confirmInstitutionalMode = () => {
+    console.log("Seleccion de rol institucional:", user.globalRole);
     setSelectedDesignacionIdState(null);
     setUserState((prev) => applyInstitutionalRole(prev));
     setEntryMode("institutional");
@@ -450,6 +520,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
         confirmDesignacionSelection,
         confirmInstitutionalMode,
         entryMode,
+        accessModes,
         selectedDesignacion,
         isSelectedDesignacionResponsable,
       }}

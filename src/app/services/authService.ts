@@ -6,6 +6,10 @@ type GenericRow = Record<string, unknown>;
 
 const QUERY_TIMEOUT_MS = Number(import.meta.env.VITE_SUPABASE_TIMEOUT_MS ?? 2500);
 
+function normalizeDniInput(dni: string | number): string {
+  return String(dni).trim().replace(/[.\s]/g, "");
+}
+
 function getString(row: GenericRow, keys: string[], fallback = ""): string {
   for (const key of keys) {
     const value = row[key];
@@ -140,6 +144,8 @@ async function resolveAcademicDesignaciones(user: User): Promise<AcademicDesigna
       return [];
     }
 
+    console.log("Designaciones cargadas:", { idDocente, data });
+
     return ((data ?? []) as GenericRow[]).map((row, index) =>
       mapDesignacionRowToAcademicDesignation(row, index, idDocente),
     );
@@ -162,13 +168,22 @@ async function enrichUserWithDesignaciones(user: User): Promise<User> {
 }
 
 async function loginUsuarioByDniRpc(dni: string): Promise<User | null> {
-  const { data, error } = await supabase.rpc("login_usuario_by_dni", { p_dni: dni });
+  const pDni = normalizeDniInput(dni);
+  console.log("DNI enviado:", pDni);
+
+  const { data, error } = await supabase.rpc("login_usuario_by_dni", { p_dni: pDni });
+  console.log("Respuesta RPC:", data);
+
   if (error) {
-    throw new Error(`No se pudo ejecutar login por usuario: ${error.message}`);
+    throw error;
   }
 
-  if (!Array.isArray(data) || data.length === 0) return null;
-  return mapUsuarioRowToUser((data[0] ?? {}) as GenericRow);
+  if (!data || (Array.isArray(data) && data.length === 0)) {
+    throw new Error("DNI no encontrado");
+  }
+
+  const userRow = Array.isArray(data) ? data[0] : data;
+  return mapUsuarioRowToUser((userRow ?? {}) as GenericRow);
 }
 
 async function findUsuarioByDni(dni: string): Promise<User | null> {
@@ -194,7 +209,7 @@ async function findUsuarioByDni(dni: string): Promise<User | null> {
 export async function loginByDni(dni: string): Promise<User | null> {
   if (!hasSupabaseConfig) return null;
 
-  const cleanDni = dni.replace(/\D/g, "");
+  const cleanDni = normalizeDniInput(dni);
   if (!cleanDni) return null;
 
   let baseUser: User | null = null;

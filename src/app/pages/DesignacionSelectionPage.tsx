@@ -16,11 +16,12 @@ const ROLE_LABELS: Record<string, string> = {
 
 export function DesignacionSelectionPage() {
   const navigate = useNavigate();
-  const { user, confirmDesignacionSelection, confirmInstitutionalMode } = useUser();
-  const designaciones = user.designaciones ?? [];
+  const { user, accessModes, confirmDesignacionSelection, confirmInstitutionalMode } = useUser();
+  const academicMode = accessModes.find((mode) => mode.tipo === "academico");
+  const institutionalMode = accessModes.find((mode) => mode.tipo === "institucional");
+  const designaciones = academicMode?.tipo === "academico" ? academicMode.materias : [];
   const [localSelectedId, setLocalSelectedId] = useState("");
 
-  const canEnterInstitutional = Boolean(user.globalRole && user.globalRole !== "docente");
   const activeDesignacion = useMemo(
     () => designaciones.find((designacion) => designacion.id === localSelectedId) ?? null,
     [designaciones, localSelectedId],
@@ -46,7 +47,7 @@ export function DesignacionSelectionPage() {
               <GraduationCap className="w-5 h-5" />
             </div>
             <div>
-              <h1 className="text-xl sm:text-2xl font-bold leading-tight">Seleccione modo de ingreso</h1>
+              <h1 className="text-xl sm:text-2xl font-bold leading-tight">¿Como queres ingresar?</h1>
               <p className="text-blue-100 text-sm mt-1">
                 Bienvenido, {user.nombre} {user.apellido ?? ""}. El rol activo queda definido para esta sesion.
               </p>
@@ -55,7 +56,7 @@ export function DesignacionSelectionPage() {
         </div>
 
         <div className="p-6 sm:p-8 space-y-6">
-          {canEnterInstitutional && (
+          {institutionalMode?.tipo === "institucional" && (
             <section className="rounded-xl border border-slate-200 p-4">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                 <div className="flex items-start gap-3">
@@ -63,7 +64,7 @@ export function DesignacionSelectionPage() {
                   <div>
                     <p className="text-sm font-bold text-slate-900">Entrar como rol institucional</p>
                     <p className="text-xs text-slate-500 mt-1">
-                      {ROLE_LABELS[user.globalRole ?? "docente"] ?? user.globalRole} - {mapGlobalRoleToAppRole(user.globalRole)}
+                      {ROLE_LABELS[institutionalMode.rol] ?? institutionalMode.rol} - {mapGlobalRoleToAppRole(institutionalMode.rol)}
                     </p>
                   </div>
                 </div>
