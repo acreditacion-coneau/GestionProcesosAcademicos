@@ -9,6 +9,7 @@ import { RepositoriosView } from "./pages/RepositoriosView";
 import { NotificacionesPage } from "./pages/NotificacionesPage";
 import { LoginPage } from "./pages/LoginPage";
 import { DesignacionSelectionPage } from "./pages/DesignacionSelectionPage";
+import { ProfilePage } from "./pages/ProfilePage";
 import { useUser } from "./context/UserContext";
 
 function AuthGuardLayout() {
@@ -101,6 +102,10 @@ export const router = createBrowserRouter([
       {
         path: "notificaciones",
         Component: NotificacionesPage,
+      },
+      {
+        path: "perfil",
+        Component: ProfilePage,
       },
     ],
   },

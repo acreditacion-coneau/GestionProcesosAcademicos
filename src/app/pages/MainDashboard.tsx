@@ -14,12 +14,16 @@ export function MainDashboard() {
   }
 
   switch (user.rol) {
+    case "DECANO":
+      return <AdminDashboard />;
     case "DOCENTE":
     case "DOCENTE_RESPONSABLE":
       return <TeacherDashboard />;
     case "JEFE_CARRERA":
       return <JefeCarreraDashboard />;
     case "SECRETARIA":
+    case "RESPONSABLE_EXTENSION":
+    case "RESPONSABLE_INVESTIGACION":
       return <SecretariaDashboard />;
     case "ADMINISTRATIVO":
       return <AdministrativoDashboard />;

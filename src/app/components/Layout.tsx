@@ -1,17 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Outlet, NavLink } from "react-router";
-import { Check, ChevronDown, PanelLeft, Search, Shield, UserCircle, Wrench } from "lucide-react";
+import { NavLink, Outlet, useNavigate } from "react-router";
+import { Check, ChevronDown, LogOut, PanelLeft, Search, Shield, UserCircle, Wrench } from "lucide-react";
 import { useUser } from "../context/UserContext";
 import { NotificacionesBell } from "./NotificacionesBell";
 import { LayoutProvider, useLayoutState } from "../context/LayoutContext";
 
 const ROL_LABELS: Record<string, string> = {
+  DECANO: "Decano",
   DOCENTE: "Docente",
   DOCENTE_RESPONSABLE: "Responsable de Catedra",
   JEFE_CARRERA: "Jefe de Carrera",
   SECRETARIA: "Secretaria Academica",
-  ADMINISTRATIVO: "Administrador / Mesa",
+  ADMINISTRATIVO: "Administrativo",
   SEC_TECNICA: "Secretaria Tecnica",
+  RESPONSABLE_EXTENSION: "Responsable Extension",
+  RESPONSABLE_INVESTIGACION: "Responsable Investigacion",
 };
 
 function LayoutInner() {
@@ -20,20 +23,24 @@ function LayoutInner() {
     personas,
     setPersonaIndex,
     isAdmin,
+    logout,
     selectedDesignacionId,
     setSelectedDesignacionId,
     selectedDesignacion,
   } = useUser();
+  const navigate = useNavigate();
   const { isSidebarCollapsed, toggleSidebar } = useLayoutState();
-  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [simulatorOpen, setSimulatorOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [searchPersona, setSearchPersona] = useState("");
-  const dropdownRef = useRef<HTMLDivElement>(null);
+  const simulatorRef = useRef<HTMLDivElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-        setDropdownOpen(false);
-      }
+      const target = event.target as Node;
+      if (simulatorRef.current && !simulatorRef.current.contains(target)) setSimulatorOpen(false);
+      if (userMenuRef.current && !userMenuRef.current.contains(target)) setUserMenuOpen(false);
     }
 
     document.addEventListener("mousedown", handleClickOutside);
@@ -46,12 +53,8 @@ function LayoutInner() {
 
     return personas.filter((persona) => {
       const rol = (ROL_LABELS[persona.rol] ?? persona.rol).toLowerCase();
-      return (
-        persona.nombre.toLowerCase().includes(query)
-        || persona.dni.includes(query)
-        || persona.carrera.toLowerCase().includes(query)
-        || rol.includes(query)
-      );
+      const name = `${persona.nombre} ${persona.apellido ?? ""}`.toLowerCase();
+      return name.includes(query) || persona.dni.includes(query) || persona.carrera.toLowerCase().includes(query) || rol.includes(query);
     });
   }, [personas, searchPersona]);
 
@@ -59,6 +62,12 @@ function LayoutInner() {
   const showDesignacionSelector =
     (user.rol === "DOCENTE" || user.rol === "DOCENTE_RESPONSABLE")
     && designaciones.length > 0;
+
+  const handleLogout = async () => {
+    await logout();
+    setUserMenuOpen(false);
+    navigate("/login", { replace: true });
+  };
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans text-slate-800 flex flex-col">
@@ -78,7 +87,7 @@ function LayoutInner() {
               <div className="w-10 h-10 bg-white/10 rounded-full flex items-center justify-center">
                 {user.rol === "ADMINISTRATIVO" ? (
                   <Wrench className="w-5 h-5 text-white" />
-                ) : user.rol === "SECRETARIA" || user.rol === "JEFE_CARRERA" || user.rol === "SEC_TECNICA" ? (
+                ) : user.rol === "SECRETARIA" || user.rol === "JEFE_CARRERA" || user.rol === "SEC_TECNICA" || user.rol === "DECANO" ? (
                   <Shield className="w-5 h-5 text-white" />
                 ) : (
                   <UserCircle className="w-5 h-5 text-white" />
@@ -93,7 +102,7 @@ function LayoutInner() {
 
           <div className="flex items-center gap-3 md:gap-4 shrink-0">
             <div className="hidden lg:flex flex-col text-right gap-1.5">
-              <span className="font-medium text-sm">{user.nombre}</span>
+              <span className="font-medium text-sm">{user.nombre} {user.apellido ?? ""}</span>
               <span className="text-blue-200 text-xs">
                 {ROL_LABELS[user.rol] ?? user.rol} - {user.carrera === "Todas" ? "Todas las carreras" : user.carrera}
               </span>
@@ -120,22 +129,21 @@ function LayoutInner() {
 
             <NotificacionesBell />
 
-            <div className="relative" ref={dropdownRef}>
+            <div className="relative" ref={simulatorRef}>
               <button
-                onClick={() => setDropdownOpen((prev) => !prev)}
+                onClick={() => setSimulatorOpen((prev) => !prev)}
                 className="flex items-center gap-2 text-xs bg-blue-800 hover:bg-blue-700 px-3 py-1.5 rounded-xl border border-blue-700 transition-colors"
                 title="Simular una vista para demostracion"
               >
-                <span>{isAdmin ? "Admin" : "Vista"}: {ROL_LABELS[user.rol] ?? user.rol}</span>
-                <ChevronDown className={`w-3 h-3 transition-transform ${dropdownOpen ? "rotate-180" : ""}`} />
+                <span>Simular vista</span>
+                <ChevronDown className={`w-3 h-3 transition-transform ${simulatorOpen ? "rotate-180" : ""}`} />
               </button>
 
-              {dropdownOpen && (
+              {simulatorOpen && (
                 <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden animate-in fade-in slide-in-from-top-2 z-50">
                   <div className="px-4 py-2 bg-slate-50 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-wide">
-                    Simular vista
+                    Simulador de roles
                   </div>
-
                   <div className="px-3 py-2 border-b border-slate-100">
                     <label className="relative block">
                       <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
@@ -148,7 +156,6 @@ function LayoutInner() {
                       />
                     </label>
                   </div>
-
                   <div className="max-h-[60vh] overflow-y-auto">
                     {personasFiltradas.map((persona) => {
                       const isSelected = persona.dni === user.dni;
@@ -158,10 +165,8 @@ function LayoutInner() {
                         <button
                           key={persona.dni}
                           onClick={() => {
-                            if (originalIndex >= 0) {
-                              setPersonaIndex(originalIndex);
-                            }
-                            setDropdownOpen(false);
+                            if (originalIndex >= 0) setPersonaIndex(originalIndex);
+                            setSimulatorOpen(false);
                           }}
                           className={`w-full text-left px-4 py-3 flex items-start gap-3 transition-colors border-b border-slate-50 last:border-0 ${
                             isSelected ? "bg-blue-50/50" : "hover:bg-slate-50"
@@ -169,7 +174,7 @@ function LayoutInner() {
                         >
                           <div className="flex-1 min-w-0">
                             <p className={`text-sm font-semibold truncate ${isSelected ? "text-blue-700" : "text-slate-800"}`}>
-                              {persona.nombre}
+                              {persona.nombre} {persona.apellido ?? ""}
                             </p>
                             <p className="text-xs text-slate-500 mt-0.5 truncate">
                               {ROL_LABELS[persona.rol] ?? persona.rol} - {persona.carrera}
@@ -179,11 +184,39 @@ function LayoutInner() {
                         </button>
                       );
                     })}
-
-                    {personasFiltradas.length === 0 && (
-                      <div className="px-4 py-6 text-center text-xs text-slate-400">Sin resultados</div>
-                    )}
                   </div>
+                </div>
+              )}
+            </div>
+
+            <div className="relative" ref={userMenuRef}>
+              <button
+                onClick={() => setUserMenuOpen((prev) => !prev)}
+                className="flex items-center gap-2 text-xs bg-white/10 hover:bg-white/15 px-3 py-1.5 rounded-xl border border-white/15 transition-colors"
+              >
+                <UserCircle className="w-4 h-4" />
+                <span>{user.nombre || "Usuario"}</span>
+                <ChevronDown className={`w-3 h-3 transition-transform ${userMenuOpen ? "rotate-180" : ""}`} />
+              </button>
+
+              {userMenuOpen && (
+                <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden animate-in fade-in slide-in-from-top-2 z-50">
+                  <NavLink
+                    to="/perfil"
+                    onClick={() => setUserMenuOpen(false)}
+                    className="flex items-center gap-2 px-4 py-3 text-sm text-slate-700 hover:bg-slate-50"
+                  >
+                    <UserCircle className="w-4 h-4 text-slate-500" />
+                    Ver perfil
+                  </NavLink>
+                  <button
+                    type="button"
+                    onClick={handleLogout}
+                    className="w-full flex items-center gap-2 px-4 py-3 text-sm text-red-700 hover:bg-red-50"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    Cerrar sesion
+                  </button>
                 </div>
               )}
             </div>

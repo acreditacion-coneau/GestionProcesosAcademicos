@@ -1,10 +1,31 @@
-﻿import { createContext, useContext, useEffect, useMemo, useState, ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, ReactNode } from "react";
 import { getProfesoresFromSupabase, loginByDni } from "../services/authService";
-import { hasSupabaseConfig } from "../../lib/supabaseClient";
+import { hasSupabaseConfig, supabase } from "../../lib/supabaseClient";
 
-export type Role = "DOCENTE" | "DOCENTE_RESPONSABLE" | "JEFE_CARRERA" | "SECRETARIA" | "ADMINISTRATIVO" | "SEC_TECNICA";
+export type GlobalRole =
+  | "decano"
+  | "secretaria_academica"
+  | "secretaria_tecnica"
+  | "jefe_carrera"
+  | "responsable_extension"
+  | "responsable_investigacion"
+  | "administrativo"
+  | "docente";
+
+export type Role =
+  | "DECANO"
+  | "DOCENTE"
+  | "DOCENTE_RESPONSABLE"
+  | "JEFE_CARRERA"
+  | "SECRETARIA"
+  | "ADMINISTRATIVO"
+  | "SEC_TECNICA"
+  | "RESPONSABLE_EXTENSION"
+  | "RESPONSABLE_INVESTIGACION";
+
 export type Carrera = "Arquitectura" | "Lic. en Diseño de Interiores" | "Diseño Industrial" | "Lic. en Gestión Eficiente de la Energía" | "Todas";
 export type Cargo = "Titular" | "Asociado" | "Adjunto" | "Auxiliar" | "Ayudante" | "Adscripto" | "Administrativo";
+export type EntryMode = "institutional" | "academic" | null;
 
 export interface AcademicDesignation {
   id?: string;
@@ -16,13 +37,16 @@ export interface AcademicDesignation {
 }
 
 export interface User {
+  idUsuario?: string;
   idDocente?: string;
   nombre: string;
+  apellido?: string;
   dni: string;
   carrera: Carrera;
   cargo: Cargo;
   materia: string;
   rol: Role;
+  globalRole?: GlobalRole;
   email: string;
   designaciones?: AcademicDesignation[];
 }
@@ -35,7 +59,7 @@ interface UserContextType {
   personas: User[];
   isAdmin: boolean;
   loginWithCredentials: (dni: string, password: string) => Promise<{ ok: boolean; error?: string }>;
-  logout: () => void;
+  logout: () => Promise<void>;
   isAuthenticated: boolean;
   isLoading: boolean;
   hasAnyResponsableDesignacion: () => boolean;
@@ -44,6 +68,8 @@ interface UserContextType {
   setSelectedDesignacionId: (id: string | null) => void;
   needsDesignacionSelection: boolean;
   confirmDesignacionSelection: (id: string) => void;
+  confirmInstitutionalMode: () => void;
+  entryMode: EntryMode;
   selectedDesignacion: AcademicDesignation | null;
   isSelectedDesignacionResponsable: () => boolean;
 }
@@ -51,70 +77,117 @@ interface UserContextType {
 const ADMIN_DNI = "admin";
 const ADMIN_PASSWORD = "ucasal2022";
 
+export function mapGlobalRoleToAppRole(role?: GlobalRole): Role {
+  switch (role) {
+    case "decano":
+      return "DECANO";
+    case "secretaria_academica":
+      return "SECRETARIA";
+    case "secretaria_tecnica":
+      return "SEC_TECNICA";
+    case "jefe_carrera":
+      return "JEFE_CARRERA";
+    case "responsable_extension":
+      return "RESPONSABLE_EXTENSION";
+    case "responsable_investigacion":
+      return "RESPONSABLE_INVESTIGACION";
+    case "administrativo":
+      return "ADMINISTRATIVO";
+    case "docente":
+    default:
+      return "DOCENTE";
+  }
+}
+
 const adminUser: User = {
   nombre: "Administrador",
+  apellido: "",
   dni: ADMIN_DNI,
   carrera: "Todas",
   cargo: "Administrativo",
   materia: "-",
-  rol: "ADMINISTRATIVO",
+  rol: "DECANO",
+  globalRole: "decano",
   email: "admin@faud.edu.ar",
 };
 
 const fallbackPersonas: User[] = [
   {
-    nombre: "Carlos Gómez",
+    nombre: "Carlos",
+    apellido: "Gomez",
     dni: "12345678",
     carrera: "Arquitectura",
     cargo: "Auxiliar",
-    materia: "Matemática II",
+    materia: "Matematica II",
     rol: "DOCENTE",
+    globalRole: "docente",
     email: "c.gomez@faud.edu.ar",
   },
   {
-    nombre: "Dra. Ana Sánchez",
+    nombre: "Ana",
+    apellido: "Sanchez",
     dni: "23456789",
-    carrera: "Diseño Industrial",
+    carrera: "Diseno Industrial",
     cargo: "Titular",
-    materia: "Morfología",
+    materia: "Morfologia",
     rol: "DOCENTE_RESPONSABLE",
+    globalRole: "docente",
     email: "a.sanchez@faud.edu.ar",
   },
   {
-    nombre: "Arq. Roberto Díaz",
-    dni: "34567890",
-    carrera: "Arquitectura",
-    cargo: "Titular",
-    materia: "Proyecto Urbano",
-    rol: "JEFE_CARRERA",
-    email: "jefe.carrera@faud.edu.ar",
+    nombre: "Decano",
+    apellido: "FAUD",
+    dni: "90000001",
+    carrera: "Todas",
+    cargo: "Administrativo",
+    materia: "-",
+    rol: "DECANO",
+    globalRole: "decano",
+    email: "decano@faud.edu.ar",
   },
   {
-    nombre: "Secretaría Académica",
+    nombre: "Secretaria",
+    apellido: "Academica",
     dni: "45678901",
     carrera: "Todas",
     cargo: "Administrativo",
     materia: "-",
     rol: "SECRETARIA",
+    globalRole: "secretaria_academica",
     email: "secretaria.academica@faud.edu.ar",
   },
   {
-    nombre: "Laura Méndez",
-    dni: "56789012",
-    carrera: "Todas",
-    cargo: "Administrativo",
-    materia: "-",
-    rol: "ADMINISTRATIVO",
-    email: "admin.mesa@faud.edu.ar",
-  },
-  {
-    nombre: "Secretaría Técnica",
+    nombre: "Secretaria",
+    apellido: "Tecnica",
     dni: "67890123",
     carrera: "Todas",
     cargo: "Administrativo",
     materia: "-",
     rol: "SEC_TECNICA",
+    globalRole: "secretaria_tecnica",
     email: "sec.tecnica@faud.edu.ar",
+  },
+  {
+    nombre: "Responsable",
+    apellido: "Extension",
+    dni: "90000002",
+    carrera: "Todas",
+    cargo: "Administrativo",
+    materia: "-",
+    rol: "RESPONSABLE_EXTENSION",
+    globalRole: "responsable_extension",
+    email: "extension@faud.edu.ar",
+  },
+  {
+    nombre: "Responsable",
+    apellido: "Investigacion",
+    dni: "90000003",
+    carrera: "Todas",
+    cargo: "Administrativo",
+    materia: "-",
+    rol: "RESPONSABLE_INVESTIGACION",
+    globalRole: "responsable_investigacion",
+    email: "investigacion@faud.edu.ar",
   },
 ];
 
@@ -135,19 +208,7 @@ function mergeUniqueUsers(...groups: User[][]): User[] {
 }
 
 function sortPersonas(users: User[]): User[] {
-  const admin = users.filter((user) => user.dni === ADMIN_DNI);
-  const others = users
-    .filter((user) => user.dni !== ADMIN_DNI)
-    .sort((a, b) => a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" }));
-
-  return [...admin, ...others];
-}
-
-function isBypassSelectionRole(role: Role): boolean {
-  return role === "ADMINISTRATIVO"
-    || role === "SECRETARIA"
-    || role === "SEC_TECNICA"
-    || role === "JEFE_CARRERA";
+  return [...users].sort((a, b) => `${a.apellido ?? ""} ${a.nombre}`.localeCompare(`${b.apellido ?? ""} ${b.nombre}`, "es", { sensitivity: "base" }));
 }
 
 const initialUsers = mergeUniqueUsers([adminUser], fallbackPersonas);
@@ -155,52 +216,45 @@ const UserContext = createContext<UserContextType | undefined>(undefined);
 
 export function UserProvider({ children }: { children: ReactNode }) {
   const [personas, setPersonas] = useState<User[]>(sortPersonas(initialUsers));
-  const [user, setUserState] = useState<User>(initialUsers[1] ?? initialUsers[0]);
+  const [user, setUserState] = useState<User>(adminUser);
   const [selectedDesignacionId, setSelectedDesignacionIdState] = useState<string | null>(null);
-  const [hasConfirmedDesignacionSelection, setHasConfirmedDesignacionSelection] = useState(false);
+  const [hasConfirmedEntryMode, setHasConfirmedEntryMode] = useState(false);
+  const [entryMode, setEntryMode] = useState<EntryMode>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const isAdmin = user.dni === ADMIN_DNI;
+  const isAdmin = user.rol === "DECANO" || user.dni === ADMIN_DNI;
 
   const personasWithoutAdmin = useMemo(() => personas.filter((p) => p.dni !== ADMIN_DNI), [personas]);
 
   useEffect(() => {
     let active = true;
     const loadingWatchdog = setTimeout(() => {
-      if (active) {
-        setIsLoading(false);
-      }
+      if (active) setIsLoading(false);
     }, 2500);
 
-    async function loadProfesores() {
+    async function loadUsuarios() {
       try {
-        const profesoresRaw = await getProfesoresFromSupabase();
+        const usuariosRaw = await getProfesoresFromSupabase();
         if (!active) return;
 
-        const profesores = profesoresRaw.filter((profesor) => Boolean(profesor.nombre.trim()));
-
+        const usuarios = usuariosRaw.filter((item) => Boolean(item.nombre.trim()));
         const merged = sortPersonas(hasSupabaseConfig
-          ? mergeUniqueUsers([adminUser], profesores)
-          : mergeUniqueUsers([adminUser], profesores, fallbackPersonas));
+          ? mergeUniqueUsers([adminUser], usuarios, fallbackPersonas)
+          : mergeUniqueUsers([adminUser], usuarios, fallbackPersonas));
         setPersonas(merged);
 
         if (!isAuthenticated) {
-          const firstNonAdmin = merged.find((u) => u.dni !== ADMIN_DNI);
-          if (firstNonAdmin) {
-            setUserState(firstNonAdmin);
-          }
+          setUserState(merged.find((u) => u.dni !== ADMIN_DNI) ?? adminUser);
         }
       } catch (error) {
-        console.warn("No se pudo cargar docentes desde Supabase:", error);
+        console.warn("No se pudo cargar usuarios desde Supabase:", error);
       } finally {
         clearTimeout(loadingWatchdog);
-        if (active) {
-          setIsLoading(false);
-        }
+        if (active) setIsLoading(false);
       }
     }
 
-    loadProfesores();
+    loadUsuarios();
 
     return () => {
       active = false;
@@ -208,33 +262,47 @@ export function UserProvider({ children }: { children: ReactNode }) {
     };
   }, [isAuthenticated]);
 
+  const applyInstitutionalRole = (target: User): User => ({
+    ...target,
+    rol: mapGlobalRoleToAppRole(target.globalRole),
+    materia: "-",
+  });
+
+  const applyAcademicRole = (target: User, designation?: AcademicDesignation): User => ({
+    ...target,
+    rol: designation?.academicRole ?? "DOCENTE",
+    materia: designation?.asignatura || target.materia,
+    carrera: designation?.carrera ? (designation.carrera as Carrera) : target.carrera,
+    cargo: designation?.cargo ? (designation.cargo as Cargo) : target.cargo,
+  });
+
+  const activatePersonaForDemo = (persona: User) => {
+    const firstDesignation = persona.designaciones?.[0];
+    const nextUser = firstDesignation ? applyAcademicRole(persona, firstDesignation) : applyInstitutionalRole(persona);
+    setUserState(nextUser);
+    setSelectedDesignacionIdState(firstDesignation?.id ?? null);
+    setEntryMode(firstDesignation ? "academic" : "institutional");
+    setHasConfirmedEntryMode(true);
+    setIsAuthenticated(true);
+  };
+
   const cyclePersona = () => {
     if (personasWithoutAdmin.length === 0) return;
-
-    setUserState((prev) => {
-      const currentIndex = personasWithoutAdmin.findIndex((p) => p.dni === prev.dni);
-      const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % personasWithoutAdmin.length : 0;
-      const nextPersona = personasWithoutAdmin[nextIndex];
-      setSelectedDesignacionIdState(nextPersona.designaciones?.[0]?.id ?? null);
-      return nextPersona;
-    });
-    setHasConfirmedDesignacionSelection(true);
-    setIsAuthenticated(true);
+    const currentIndex = personasWithoutAdmin.findIndex((p) => p.dni === user.dni);
+    const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % personasWithoutAdmin.length : 0;
+    activatePersonaForDemo(personasWithoutAdmin[nextIndex]);
   };
 
   const setPersonaIndex = (index: number) => {
     const persona = personas[index];
-    if (!persona) return;
-    setUserState(persona);
-    setSelectedDesignacionIdState(persona.designaciones?.[0]?.id ?? null);
-    setHasConfirmedDesignacionSelection(true);
-    setIsAuthenticated(true);
+    if (persona) activatePersonaForDemo(persona);
   };
 
   const setUser = (nextUser: User) => {
     setUserState(nextUser);
     setSelectedDesignacionIdState(null);
-    setHasConfirmedDesignacionSelection(false);
+    setHasConfirmedEntryMode(false);
+    setEntryMode(null);
     setIsAuthenticated(true);
     setPersonas((prev) => sortPersonas(mergeUniqueUsers(prev, [nextUser])));
   };
@@ -243,79 +311,60 @@ export function UserProvider({ children }: { children: ReactNode }) {
     const dniInput = rawDni.trim();
     const passwordInput = rawPassword.trim();
 
-    if (!dniInput) {
-      return { ok: false, error: "Ingrese un DNI o usuario." };
-    }
-
-    if (!passwordInput) {
-      return { ok: false, error: "Ingrese una contraseña." };
-    }
+    if (!dniInput) return { ok: false, error: "Ingrese un DNI o usuario." };
+    if (!passwordInput) return { ok: false, error: "Ingrese una contrasena." };
 
     if (dniInput.toLowerCase() === ADMIN_DNI) {
-      if (passwordInput !== ADMIN_PASSWORD) {
-        return { ok: false, error: "Credenciales de administrador inválidas." };
-      }
-
+      if (passwordInput !== ADMIN_PASSWORD) return { ok: false, error: "Credenciales de administrador invalidas." };
       setUserState(adminUser);
       setSelectedDesignacionIdState(null);
-      setHasConfirmedDesignacionSelection(true);
+      setHasConfirmedEntryMode(true);
+      setEntryMode("institutional");
       setIsAuthenticated(true);
       setPersonas((prev) => sortPersonas(mergeUniqueUsers([adminUser], prev)));
       return { ok: true };
     }
 
     const normalizedDni = dniInput.replace(/\D/g, "");
-    if (!normalizedDni) {
-      return { ok: false, error: "Ingrese un DNI válido (solo números)." };
-    }
+    if (!normalizedDni) return { ok: false, error: "Ingrese un DNI valido (solo numeros)." };
+    if (passwordInput !== normalizedDni) return { ok: false, error: "Por ahora, la contrasena es el mismo DNI." };
 
-    if (passwordInput !== normalizedDni) {
-      return { ok: false, error: "Por ahora, la contraseña es el mismo DNI." };
-    }
-
-    const docenteFallback = hasSupabaseConfig
-      ? null
-      : personas.find((p) => p.dni === normalizedDni) ?? fallbackPersonas.find((p) => p.dni === normalizedDni);
-    if (!hasSupabaseConfig && !docenteFallback) {
-      return {
-        ok: false,
-        error: "Falta configurar Supabase (VITE_SUPABASE_ANON_KEY) para validar DNIs de la base de datos.",
-      };
-    }
-
-    let docenteSupabase: User | null = null;
+    const fallback = hasSupabaseConfig ? null : personas.find((p) => p.dni === normalizedDni) ?? fallbackPersonas.find((p) => p.dni === normalizedDni);
+    let usuarioSupabase: User | null = null;
     let loginErrorMessage = "";
+
     try {
-      docenteSupabase = await loginByDni(normalizedDni);
+      usuarioSupabase = await loginByDni(normalizedDni);
     } catch (error) {
       loginErrorMessage = error instanceof Error ? error.message : "No se pudo validar el DNI en Supabase.";
       console.warn("No se pudo consultar Supabase en login por DNI:", error);
     }
-    const docente = docenteSupabase ?? docenteFallback;
 
-    if (!docente) {
-      return {
-        ok: false,
-        error: loginErrorMessage || "DNI no encontrado en la tabla docentes (o la política RLS no permite leer ese registro).",
-      };
+    const loggedUser = usuarioSupabase ?? fallback;
+    if (!loggedUser) {
+      return { ok: false, error: loginErrorMessage || "DNI no encontrado en la tabla usuarios." };
     }
 
-    setUserState(docente);
+    const needsModeSelection = Boolean(loggedUser.idDocente && ((loggedUser.designaciones ?? []).length > 0 || loggedUser.globalRole !== "docente"));
+    setUserState(needsModeSelection ? loggedUser : applyInstitutionalRole(loggedUser));
     setSelectedDesignacionIdState(null);
-    setHasConfirmedDesignacionSelection(false);
+    setHasConfirmedEntryMode(!needsModeSelection);
+    setEntryMode(needsModeSelection ? null : "institutional");
     setIsAuthenticated(true);
-    setPersonas((prev) => sortPersonas(mergeUniqueUsers(prev, [docente])));
+    setPersonas((prev) => sortPersonas(mergeUniqueUsers(prev, [loggedUser])));
     return { ok: true };
   };
 
-  const logout = () => {
+  const logout = async () => {
+    await supabase.auth.signOut();
     setIsAuthenticated(false);
-    setHasConfirmedDesignacionSelection(false);
+    setHasConfirmedEntryMode(false);
+    setEntryMode(null);
+    setSelectedDesignacionIdState(null);
   };
 
   const selectedDesignacion = useMemo(() => {
     const designaciones = user.designaciones ?? [];
-    if (designaciones.length === 0) return null;
     if (!selectedDesignacionId) return null;
     return designaciones.find((designacion) => designacion.id === selectedDesignacionId) ?? null;
   }, [user.designaciones, selectedDesignacionId]);
@@ -330,53 +379,38 @@ export function UserProvider({ children }: { children: ReactNode }) {
     if (!selected) return;
 
     setSelectedDesignacionIdState(selected.id ?? null);
-    setUserState((prev) => ({
-      ...prev,
-      rol: selected.academicRole,
-      materia: selected.asignatura || prev.materia,
-      carrera: selected.carrera ? (selected.carrera as Carrera) : prev.carrera,
-      cargo: selected.cargo ? (selected.cargo as Cargo) : prev.cargo,
-    }));
+    setEntryMode("academic");
+    setUserState((prev) => applyAcademicRole(prev, selected));
   };
 
-  useEffect(() => {
-    const designaciones = user.designaciones ?? [];
-    if (designaciones.length === 0) {
-      if (selectedDesignacionId !== null) {
-        setSelectedDesignacionIdState(null);
-      }
-      return;
-    }
-
-    if (selectedDesignacionId && designaciones.some((designacion) => designacion.id === selectedDesignacionId)) {
-      return;
-    }
-
-    if (selectedDesignacionId !== null) {
-      setSelectedDesignacionIdState(null);
-    }
-  }, [user.designaciones, selectedDesignacionId]);
-
   const needsDesignacionSelection = useMemo(() => {
-    return isAuthenticated && !isBypassSelectionRole(user.rol) && !hasConfirmedDesignacionSelection;
-  }, [user.rol, user.designaciones, isAuthenticated, hasConfirmedDesignacionSelection]);
+    if (!isAuthenticated || hasConfirmedEntryMode) return false;
+    if (!user.idDocente) return false;
+    return (user.designaciones ?? []).length > 0 || user.globalRole !== "docente";
+  }, [user.idDocente, user.globalRole, user.designaciones, isAuthenticated, hasConfirmedEntryMode]);
 
   const confirmDesignacionSelection = (id: string) => {
-    const designaciones = user.designaciones ?? [];
-    if (designaciones.length === 0) {
-      return;
-    }
-
-    const selected = designaciones.find((designacion) => designacion.id === id) ?? designaciones[0];
+    const selected = (user.designaciones ?? []).find((designacion) => designacion.id === id);
+    if (!selected) return;
     setSelectedDesignacionId(selected.id ?? null);
-    setHasConfirmedDesignacionSelection(true);
+    setEntryMode("academic");
+    setHasConfirmedEntryMode(true);
+  };
+
+  const confirmInstitutionalMode = () => {
+    setSelectedDesignacionIdState(null);
+    setUserState((prev) => applyInstitutionalRole(prev));
+    setEntryMode("institutional");
+    setHasConfirmedEntryMode(true);
   };
 
   const hasAnyResponsableDesignacion = () => {
+    if (user.rol === "DECANO") return true;
     return (user.designaciones ?? []).some((designacion) => designacion.academicRole === "DOCENTE_RESPONSABLE");
   };
 
   const isResponsableForAsignatura = (asignatura?: string) => {
+    if (user.rol === "DECANO" || user.rol === "SECRETARIA" || user.rol === "SEC_TECNICA") return true;
     const designaciones = user.designaciones ?? [];
     if (!asignatura?.trim()) {
       return designaciones.some((designacion) => designacion.academicRole === "DOCENTE_RESPONSABLE");
@@ -391,8 +425,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
   };
 
   const isSelectedDesignacionResponsable = () => {
-    if (!selectedDesignacion) return false;
-    return selectedDesignacion.academicRole === "DOCENTE_RESPONSABLE";
+    if (user.rol === "DECANO" || user.rol === "SECRETARIA" || user.rol === "SEC_TECNICA") return true;
+    return selectedDesignacion?.academicRole === "DOCENTE_RESPONSABLE";
   };
 
   return (
@@ -414,6 +448,8 @@ export function UserProvider({ children }: { children: ReactNode }) {
         setSelectedDesignacionId,
         needsDesignacionSelection,
         confirmDesignacionSelection,
+        confirmInstitutionalMode,
+        entryMode,
         selectedDesignacion,
         isSelectedDesignacionResponsable,
       }}
@@ -430,4 +466,3 @@ export function useUser() {
   }
   return context;
 }
-
