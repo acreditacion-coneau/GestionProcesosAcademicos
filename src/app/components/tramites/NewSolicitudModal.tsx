@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useTramites } from "../../context/TramitesContext";
 import { useUser } from "../../context/UserContext";
 import { differenceInDays, format } from "date-fns";
 import { AlertCircle, Plus, Save, Trash2, X } from "lucide-react";
+import { hasSupabaseConfig, supabase } from "../../../lib/supabaseClient";
 
 interface ModalProps {
   onClose: () => void;
@@ -14,36 +15,311 @@ type AlumnoForm = {
   sexoGramatical: "F" | "M";
 };
 
-const YEAR_OPTIONS = ["1ro", "2do", "3ro", "4to", "5to"];
+type GenericRow = Record<string, unknown>;
+
+type CarreraOption = {
+  id: string;
+  nombre: string;
+};
+
+type AsignaturaOption = {
+  id: string;
+  nombre: string;
+  anio: string;
+  regimen: "Semestral" | "Anual";
+  idCarrera: string;
+};
+
+function getString(row: GenericRow, keys: string[], fallback = ""): string {
+  for (const key of keys) {
+    const value = row[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (typeof value === "number" || typeof value === "bigint") return String(value);
+  }
+  return fallback;
+}
+
+function normalizeYearLabel(raw: string): string {
+  const yearNumber = Number.parseInt(raw.replace(/\D/g, ""), 10);
+  if (!Number.isFinite(yearNumber)) return raw.trim();
+  if (yearNumber === 1) return "1ro";
+  if (yearNumber === 2) return "2do";
+  if (yearNumber === 3) return "3ro";
+  if (yearNumber === 4) return "4to";
+  if (yearNumber === 5) return "5to";
+  return String(yearNumber);
+}
+
+function normalizeRegimen(raw: string): "Semestral" | "Anual" {
+  return raw.toLowerCase().includes("anual") ? "Anual" : "Semestral";
+}
+
+function normalizeText(raw: string): string {
+  return raw
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
 
 export const NewSolicitudModal: React.FC<ModalProps> = ({ onClose }) => {
   const { user, selectedDesignacion, isSelectedDesignacionResponsable } = useUser();
   const { crearTramite, cicloConfig } = useTramites();
+
   const [error, setError] = useState("");
-  const [carrera, setCarrera] = useState(selectedDesignacion?.carrera || (user.carrera === "Todas" ? "Arquitectura" : user.carrera));
+  const [carreras, setCarreras] = useState<CarreraOption[]>([]);
+  const [asignaturas, setAsignaturas] = useState<AsignaturaOption[]>([]);
+  const [materiasFiltradas, setMateriasFiltradas] = useState<AsignaturaOption[]>([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState("");
+
+  const [selectedCarreraId, setSelectedCarreraId] = useState("");
+  const [carrera, setCarrera] = useState("");
+  const [carreraBusqueda, setCarreraBusqueda] = useState("");
+  const [showCarreraOptions, setShowCarreraOptions] = useState(false);
+
+  const [selectedAsignaturaId, setSelectedAsignaturaId] = useState("");
+  const [asignatura, setAsignatura] = useState("");
+  const [materiaBusqueda, setMateriaBusqueda] = useState("");
+  const [showMateriaOptions, setShowMateriaOptions] = useState(false);
+
   const [anioCarrera, setAnioCarrera] = useState("");
-  const [asignatura, setAsignatura] = useState(selectedDesignacion?.asignatura || (user.materia === "-" ? "" : user.materia));
-  const [regimen, setRegimen] = useState<"Semestral" | "Anual">("Semestral");
+  const [regimen, setRegimen] = useState<"" | "Semestral" | "Anual">("");
   const [notaAprobacion, setNotaAprobacion] = useState("");
   const [alumnos, setAlumnos] = useState<AlumnoForm[]>([{ nombreCompleto: "", dni: "", sexoGramatical: "F" }]);
   const [submitting, setSubmitting] = useState(false);
 
+  const carreraOptionsRef = useRef<HTMLDivElement>(null);
+  const materiaOptionsRef = useRef<HTMLDivElement>(null);
+  const didInitialPrefillRef = useRef(false);
+
   const fechaSolicitud = useMemo(() => format(new Date(), "dd/MM/yyyy"), []);
   const isAcademicDocente = user.rol === "DOCENTE" || user.rol === "DOCENTE_RESPONSABLE";
   const canSubmitForAcademicRole = !isAcademicDocente || isSelectedDesignacionResponsable();
+  const responsableDesignaciones = useMemo(
+    () => (user.designaciones ?? []).filter((designacion) => designacion.academicRole === "DOCENTE_RESPONSABLE"),
+    [user.designaciones],
+  );
 
   const diasDesdeInicio = differenceInDays(new Date(), new Date(cicloConfig.inicioClases));
   const fueraDeTermino = diasDesdeInicio > 15;
 
+  const carrerasBuscadas = useMemo(() => {
+    const query = carreraBusqueda.trim().toLowerCase();
+    if (!query) return carreras;
+    return carreras.filter((item) => item.nombre.toLowerCase().includes(query));
+  }, [carreras, carreraBusqueda]);
+
+  const materiasBuscadas = useMemo(() => {
+    const query = materiaBusqueda.trim().toLowerCase();
+    if (!query) return materiasFiltradas;
+    return materiasFiltradas.filter((item) => item.nombre.toLowerCase().includes(query));
+  }, [materiasFiltradas, materiaBusqueda]);
+
   useEffect(() => {
-    if (!selectedDesignacion) return;
-    if (selectedDesignacion.carrera?.trim()) {
-      setCarrera(selectedDesignacion.carrera);
+    function handleClickOutside(event: MouseEvent) {
+      const target = event.target as Node;
+      if (carreraOptionsRef.current && !carreraOptionsRef.current.contains(target)) setShowCarreraOptions(false);
+      if (materiaOptionsRef.current && !materiaOptionsRef.current.contains(target)) setShowMateriaOptions(false);
     }
-    if (selectedDesignacion.asignatura?.trim()) {
-      setAsignatura(selectedDesignacion.asignatura);
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadCatalogs = async () => {
+      if (!hasSupabaseConfig) {
+        setCarreras([]);
+        setAsignaturas([]);
+        setMateriasFiltradas([]);
+        return;
+      }
+
+      setCatalogLoading(true);
+      setCatalogError("");
+
+      const [carrerasRes, asignaturasRes] = await Promise.all([
+        supabase
+          .from("carreras")
+          .select("id_carrera,nombre")
+          .order("nombre", { ascending: true })
+          .limit(1000),
+        supabase
+          .from("asignaturas")
+          .select("id_asignatura,nombre,anio,regimen,id_carrera")
+          .order("nombre", { ascending: true })
+          .limit(5000),
+      ]);
+
+      if (!active) return;
+
+      if (carrerasRes.error) {
+        setCatalogError(`No se pudieron cargar carreras: ${carrerasRes.error.message}`);
+        setCatalogLoading(false);
+        return;
+      }
+
+      if (asignaturasRes.error) {
+        setCatalogError(`No se pudieron cargar asignaturas: ${asignaturasRes.error.message}`);
+        setCatalogLoading(false);
+        return;
+      }
+
+      const carrerasRows = (carrerasRes.data ?? []) as GenericRow[];
+      const asignaturasRows = (asignaturasRes.data ?? []) as GenericRow[];
+
+      const mappedCarreras = carrerasRows
+        .map((row) => {
+          const id = getString(row, ["id_carrera", "id"], "");
+          const nombre = getString(row, ["nombre"], "");
+          if (!id || !nombre) return null;
+          return { id, nombre } satisfies CarreraOption;
+        })
+        .filter((item): item is CarreraOption => Boolean(item));
+
+      const mappedAsignaturas = asignaturasRows
+        .map((row) => {
+          const id = getString(row, ["id_asignatura", "id"], "");
+          const nombre = getString(row, ["nombre"], "");
+          const idCarrera = getString(row, ["id_carrera"], "");
+          if (!id || !nombre || !idCarrera) return null;
+
+          return {
+            id,
+            nombre,
+            anio: normalizeYearLabel(getString(row, ["anio", "año"], "")),
+            regimen: normalizeRegimen(getString(row, ["regimen"], "Semestral")),
+            idCarrera,
+          } satisfies AsignaturaOption;
+        })
+        .filter((item): item is AsignaturaOption => Boolean(item));
+
+      setCarreras(mappedCarreras);
+      setAsignaturas(mappedAsignaturas);
+      setCatalogLoading(false);
+    };
+
+    loadCatalogs();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!selectedCarreraId) {
+      setMateriasFiltradas([]);
+      return;
     }
-  }, [selectedDesignacion]);
+    const baseMaterias = asignaturas.filter((item) => item.idCarrera === selectedCarreraId);
+    if (!isAcademicDocente) {
+      setMateriasFiltradas(baseMaterias);
+      return;
+    }
+
+    const selectedCarreraNombre = carreras.find((item) => item.id === selectedCarreraId)?.nombre ?? "";
+    const responsableIds = new Set(responsableDesignaciones.map((item) => item.idAsignatura).filter(Boolean));
+    const responsableKeys = new Set(
+      responsableDesignaciones.map(
+        (item) => `${normalizeText(item.carrera)}::${normalizeText(item.asignatura)}`,
+      ),
+    );
+
+    const filtered = baseMaterias.filter((item) => {
+      if (responsableIds.has(item.id)) return true;
+      const key = `${normalizeText(selectedCarreraNombre)}::${normalizeText(item.nombre)}`;
+      return responsableKeys.has(key);
+    });
+
+    setMateriasFiltradas(filtered);
+  }, [asignaturas, carreras, selectedCarreraId, isAcademicDocente, responsableDesignaciones]);
+
+  useEffect(() => {
+    if (didInitialPrefillRef.current) return;
+    if (carreras.length === 0 || asignaturas.length === 0) return;
+
+    const sourceDesignacion = selectedDesignacion?.academicRole === "DOCENTE_RESPONSABLE"
+      ? selectedDesignacion
+      : responsableDesignaciones[0] ?? selectedDesignacion;
+    if (!sourceDesignacion) return;
+
+    const designacionCarrera = sourceDesignacion.carrera?.trim() ?? "";
+    const designacionAsignatura = sourceDesignacion.asignatura?.trim() ?? "";
+
+    if (!designacionCarrera && !designacionAsignatura) {
+      didInitialPrefillRef.current = true;
+      return;
+    }
+
+    const matchedCarrera = designacionCarrera
+      ? carreras.find((item) => item.nombre.trim().toLowerCase() === designacionCarrera.toLowerCase())
+      : undefined;
+
+    if (!matchedCarrera) {
+      didInitialPrefillRef.current = true;
+      return;
+    }
+
+    setSelectedCarreraId(matchedCarrera.id);
+    setCarrera(matchedCarrera.nombre);
+    setCarreraBusqueda(matchedCarrera.nombre);
+
+    if (designacionAsignatura) {
+      const matchedAsignatura = asignaturas.find(
+        (item) =>
+          item.idCarrera === matchedCarrera.id
+          && normalizeText(item.nombre) === normalizeText(designacionAsignatura),
+      );
+
+      if (matchedAsignatura) {
+        setSelectedAsignaturaId(matchedAsignatura.id);
+        setAsignatura(matchedAsignatura.nombre);
+        setMateriaBusqueda(matchedAsignatura.nombre);
+        setAnioCarrera(matchedAsignatura.anio);
+        setRegimen(matchedAsignatura.regimen);
+      }
+    }
+
+    didInitialPrefillRef.current = true;
+  }, [selectedDesignacion, responsableDesignaciones, carreras, asignaturas]);
+
+  const resetMateriaStep = () => {
+    setSelectedAsignaturaId("");
+    setAsignatura("");
+    setMateriaBusqueda("");
+    setAnioCarrera("");
+    setRegimen("");
+    setShowMateriaOptions(false);
+  };
+
+  const handleCarreraSelect = (nextCarrera: CarreraOption) => {
+    setSelectedCarreraId(nextCarrera.id);
+    setCarrera(nextCarrera.nombre);
+    setCarreraBusqueda(nextCarrera.nombre);
+    setShowCarreraOptions(false);
+    resetMateriaStep();
+  };
+
+  const handleMateriaSelect = (materia: AsignaturaOption) => {
+    setSelectedAsignaturaId(materia.id);
+    setAsignatura(materia.nombre);
+    setMateriaBusqueda(materia.nombre);
+    setAnioCarrera(materia.anio);
+    setRegimen(materia.regimen);
+    setShowMateriaOptions(false);
+  };
+
+  const handleNotaBlur = () => {
+    if (!notaAprobacion.trim()) return;
+    const nota = Number.parseFloat(notaAprobacion);
+    if (Number.isFinite(nota) && nota < 8) {
+      const message = "La nota debe ser igual o mayor a 8.";
+      setError(message);
+      window.alert(message);
+    }
+  };
 
   const addAlumno = () => {
     if (alumnos.length >= 2) {
@@ -85,12 +361,15 @@ export const NewSolicitudModal: React.FC<ModalProps> = ({ onClose }) => {
       .filter((a) => a.nombreCompleto && a.dni);
     const nota = Number.parseFloat(notaAprobacion);
 
-    if (!carrera || !anioCarrera || !asignatura.trim() || !regimen) {
-      setError("Complete todos los campos obligatorios de la solicitud.");
+    if (!selectedCarreraId || !carrera || !selectedAsignaturaId || !anioCarrera || !asignatura.trim() || !regimen) {
+      setError("Complete todos los campos académicos obligatorios de forma secuencial.");
       return;
     }
+
     if (!Number.isFinite(nota) || nota < 8) {
-      setError("La nota de aprobación debe ser numérica y mayor o igual a 8.");
+      const message = "La nota de aprobación debe ser mayor o igual a 8. Puede ingresar decimales, por ejemplo 8, 8.1 o 8.01.";
+      setError(message);
+      window.alert(message);
       return;
     }
 
@@ -112,10 +391,13 @@ export const NewSolicitudModal: React.FC<ModalProps> = ({ onClose }) => {
     setSubmitting(true);
     try {
       await crearTramite({
-        carrera: carrera as "Arquitectura" | "Lic. en Diseño de Interiores" | "Diseño Industrial" | "Lic. en Gestión Eficiente de la Energía",
+        carrera,
+        idCarrera: selectedCarreraId,
         anioCarrera,
         materia: asignatura.trim(),
+        idAsignatura: selectedAsignaturaId,
         regimen,
+        tipoSolicitud: "ayudante_alumno",
         notaAprobacion: nota,
         alumnosPropuestos: alumnosValidos,
       });
@@ -128,16 +410,16 @@ export const NewSolicitudModal: React.FC<ModalProps> = ({ onClose }) => {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl animate-in zoom-in-95 duration-200">
-        <div className="flex items-center justify-between p-5 border-b border-gray-100">
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[80] flex items-start justify-center px-3 sm:px-4 pt-20 sm:pt-24 pb-4 overflow-y-auto">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[calc(100dvh-5rem)] sm:max-h-[calc(100dvh-6rem)] flex flex-col animate-in zoom-in-95 duration-200">
+        <div className="flex items-center justify-between p-5 border-b border-gray-100 shrink-0">
           <h2 className="text-xl font-semibold text-gray-900">Nueva Solicitud de Ayudantía</h2>
           <button onClick={onClose} className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-md transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-5 space-y-5">
+        <form onSubmit={handleSubmit} className="p-5 space-y-5 overflow-y-auto">
           {fueraDeTermino && (
             <div className="bg-red-50 text-red-800 p-4 rounded-lg border border-red-200 flex items-start gap-3">
               <AlertCircle className="w-5 h-5 mt-0.5 shrink-0" />
@@ -153,6 +435,12 @@ export const NewSolicitudModal: React.FC<ModalProps> = ({ onClose }) => {
           {error && (
             <div className="bg-red-50 text-red-700 p-3 rounded-md text-sm border border-red-100 flex items-center gap-2">
               <AlertCircle className="w-4 h-4" /> {error}
+            </div>
+          )}
+
+          {catalogError && (
+            <div className="bg-red-50 text-red-700 p-3 rounded-md text-sm border border-red-100 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4" /> {catalogError}
             </div>
           )}
 
@@ -176,78 +464,146 @@ export const NewSolicitudModal: React.FC<ModalProps> = ({ onClose }) => {
               />
             </div>
 
-            <div className="space-y-1">
+            <div className="space-y-1 md:col-span-1" ref={carreraOptionsRef}>
               <label className="text-sm font-medium text-gray-700">Carrera *</label>
-              <select
-                value={carrera}
-                onChange={(e) => setCarrera(e.target.value)}
-                disabled={Boolean(selectedDesignacion?.carrera?.trim())}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-              >
-                <option value="Arquitectura">Arquitectura</option>
-                <option value="Lic. en Diseño de Interiores">Lic. en Diseño de Interiores</option>
-                <option value="Diseño Industrial">Diseño Industrial</option>
-                <option value="Lic. en Gestión Eficiente de la Energía">Lic. en Gestión Eficiente de la Energía</option>
-              </select>
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">Año de la carrera *</label>
-              <select
-                value={anioCarrera}
-                onChange={(e) => setAnioCarrera(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-              >
-                <option value="">Seleccionar…</option>
-                {YEAR_OPTIONS.map((year) => (
-                  <option key={year} value={year}>
-                    {year}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-sm font-medium text-gray-700">Régimen *</label>
-              <div className="flex items-center gap-5 py-2">
-                {(["Semestral", "Anual"] as const).map((opcion) => (
-                  <label key={opcion} className="inline-flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
-                    <input
-                      type="radio"
-                      checked={regimen === opcion}
-                      onChange={() => setRegimen(opcion)}
-                    />
-                    {opcion}
-                  </label>
-                ))}
+              <div className="relative">
+                <input
+                  type="text"
+                  value={carreraBusqueda}
+                  onFocus={() => {
+                    if (!isAcademicDocente) setShowCarreraOptions(true);
+                  }}
+                  onChange={(e) => {
+                    if (isAcademicDocente) return;
+                    setCarreraBusqueda(e.target.value);
+                    setSelectedCarreraId("");
+                    setCarrera("");
+                    resetMateriaStep();
+                    setShowCarreraOptions(true);
+                  }}
+                  placeholder={isAcademicDocente ? "Carrera autocompletada" : "Seleccionar carrera"}
+                  readOnly={isAcademicDocente}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                />
+                {!isAcademicDocente && showCarreraOptions && (
+                  <div className="absolute z-20 mt-1 w-full rounded-md border border-gray-200 bg-white shadow-lg max-h-56 overflow-y-auto">
+                    {catalogLoading ? (
+                      <p className="px-3 py-2 text-sm text-gray-500">Cargando carreras...</p>
+                    ) : carrerasBuscadas.length === 0 ? (
+                      <p className="px-3 py-2 text-sm text-gray-500">No hay carreras disponibles</p>
+                    ) : (
+                      carrerasBuscadas.map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            handleCarreraSelect(item);
+                          }}
+                          className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 transition-colors"
+                        >
+                          {item.nombre}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
-            <div className="space-y-1 md:col-span-2">
-              <label className="text-sm font-medium text-gray-700">Asignatura *</label>
-              <input
-                type="text"
-                value={asignatura}
-                onChange={(e) => setAsignatura(e.target.value)}
-                disabled={Boolean(selectedDesignacion?.asignatura?.trim())}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                placeholder="Ej: Diseño 1"
-              />
-            </div>
+            {selectedCarreraId && (
+              <div className="space-y-1 md:col-span-2" ref={materiaOptionsRef}>
+                <label className="text-sm font-medium text-gray-700">Materia *</label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={materiaBusqueda}
+                    onFocus={() => setShowMateriaOptions(true)}
+                    onChange={(e) => {
+                      setMateriaBusqueda(e.target.value);
+                      setSelectedAsignaturaId("");
+                      setAsignatura("");
+                      setAnioCarrera("");
+                      setRegimen("");
+                      setShowMateriaOptions(true);
+                    }}
+                    placeholder="Buscar materia..."
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                  />
+                  {showMateriaOptions && (
+                    <div className="absolute z-20 mt-1 w-full rounded-md border border-gray-200 bg-white shadow-lg max-h-56 overflow-y-auto">
+                      {catalogLoading ? (
+                        <p className="px-3 py-2 text-sm text-gray-500">Cargando materias...</p>
+                      ) : materiasBuscadas.length === 0 ? (
+                        <p className="px-3 py-2 text-sm text-gray-500">No hay materias para esta carrera</p>
+                      ) : (
+                        materiasBuscadas.map((item) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onMouseDown={(event) => {
+                              event.preventDefault();
+                              handleMateriaSelect(item);
+                            }}
+                            className="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 transition-colors"
+                          >
+                            {item.nombre}
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
 
-            <div className="space-y-1 md:col-span-2">
-              <label className="text-sm font-medium text-gray-700">Nota con la que aprobó la materia *</label>
-              <input
-                type="number"
-                min="8"
-                step="0.01"
-                value={notaAprobacion}
-                onChange={(e) => setNotaAprobacion(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
-                placeholder="Ej: 8.00"
-              />
-            </div>
+            {selectedAsignaturaId && (
+              <>
+                <div className="space-y-1">
+                  <label className="text-sm font-medium text-gray-700">Año de la carrera *</label>
+                  <input
+                    type="text"
+                    value={anioCarrera}
+                    readOnly
+                    disabled
+                    className="w-full px-3 py-2 border border-gray-200 bg-gray-50 rounded-md text-gray-600"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-sm font-medium text-gray-700">Régimen *</label>
+                  <input
+                    type="text"
+                    value={regimen}
+                    readOnly
+                    disabled
+                    className="w-full px-3 py-2 border border-gray-200 bg-gray-50 rounded-md text-gray-600"
+                  />
+                </div>
+
+                <div className="space-y-1 md:col-span-2">
+                  <label className="text-sm font-medium text-gray-700">Nota con la que aprobó la materia *</label>
+                  <input
+                    type="number"
+                    min="8"
+                    step="0.01"
+                    value={notaAprobacion}
+                    onChange={(e) => setNotaAprobacion(e.target.value)}
+                    onBlur={handleNotaBlur}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
+                    placeholder="Ej: 8.00"
+                  />
+                </div>
+              </>
+            )}
           </div>
+
+          {isAcademicDocente && selectedCarreraId && materiasFiltradas.length === 0 && (
+            <div className="bg-amber-50 text-amber-800 p-3 rounded-md text-sm border border-amber-100 flex items-center gap-2">
+              <AlertCircle className="w-4 h-4" />
+              No hay materias con rol responsable para la carrera seleccionada.
+            </div>
+          )}
 
           <div className="border rounded-lg p-4 space-y-3">
             <div className="flex items-center justify-between">

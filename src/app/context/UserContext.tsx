@@ -10,6 +10,9 @@ export type GlobalRole =
   | "responsable_extension"
   | "responsable_investigacion"
   | "administrativo"
+  | "responsable"
+  | "ayudante_alumno"
+  | "ayudante_adscripto"
   | "docente";
 
 export type Role =
@@ -32,6 +35,8 @@ export type AccessMode =
 
 export interface AcademicDesignation {
   id?: string;
+  idAsignatura?: string;
+  idCarrera?: string;
   carrera: string;
   asignatura: string;
   cargo: string;
@@ -80,6 +85,15 @@ interface UserContextType {
 
 const ADMIN_DNI = "admin";
 const ADMIN_PASSWORD = "ucasal2022";
+const SESSION_STORAGE_KEY = "fau_session_v1";
+
+type PersistedSession = {
+  user: User;
+  selectedDesignacionId: string | null;
+  hasConfirmedEntryMode: boolean;
+  entryMode: EntryMode;
+  isAuthenticated: boolean;
+};
 
 export function mapGlobalRoleToAppRole(role?: GlobalRole): Role {
   switch (role) {
@@ -97,6 +111,12 @@ export function mapGlobalRoleToAppRole(role?: GlobalRole): Role {
       return "RESPONSABLE_INVESTIGACION";
     case "administrativo":
       return "ADMINISTRATIVO";
+    case "responsable":
+      return "DOCENTE_RESPONSABLE";
+    case "ayudante_alumno":
+      return "DOCENTE";
+    case "ayudante_adscripto":
+      return "DOCENTE";
     case "docente":
     default:
       return "DOCENTE";
@@ -241,6 +261,30 @@ function normalizeDniInput(value: string): string {
   return String(value).trim().replace(/[.\s]/g, "");
 }
 
+function loadSessionFromStorage(): PersistedSession | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(SESSION_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<PersistedSession>;
+    if (!parsed || typeof parsed !== "object" || !parsed.user || !parsed.user.dni) return null;
+    return {
+      user: parsed.user,
+      selectedDesignacionId: parsed.selectedDesignacionId ?? null,
+      hasConfirmedEntryMode: Boolean(parsed.hasConfirmedEntryMode),
+      entryMode: parsed.entryMode ?? null,
+      isAuthenticated: Boolean(parsed.isAuthenticated),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function clearSessionFromStorage() {
+  if (typeof window === "undefined") return;
+  window.localStorage.removeItem(SESSION_STORAGE_KEY);
+}
+
 function buildAccessModesForUser(target: User): AccessMode[] {
   const modes: AccessMode[] = [];
   const designaciones = target.designaciones ?? [];
@@ -260,21 +304,45 @@ function buildAccessModesForUser(target: User): AccessMode[] {
   return modes;
 }
 
+function shouldPromptDesignacionSelection(modes: AccessMode[]): boolean {
+  const academicMode = modes.find((mode) => mode.tipo === "academico");
+  const hasMultipleDesignaciones = academicMode?.tipo === "academico" && academicMode.materias.length > 1;
+  return modes.length > 1 || hasMultipleDesignaciones;
+}
+
 const initialUsers = mergeUniqueUsers([adminUser], fallbackPersonas);
 const UserContext = createContext<UserContextType | undefined>(undefined);
 
 export function UserProvider({ children }: { children: ReactNode }) {
+  const [storedSession] = useState<PersistedSession | null>(() => loadSessionFromStorage());
   const [personas, setPersonas] = useState<User[]>(sortPersonas(initialUsers));
-  const [user, setUserState] = useState<User>(adminUser);
-  const [selectedDesignacionId, setSelectedDesignacionIdState] = useState<string | null>(null);
-  const [hasConfirmedEntryMode, setHasConfirmedEntryMode] = useState(false);
-  const [entryMode, setEntryMode] = useState<EntryMode>(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [user, setUserState] = useState<User>(storedSession?.user ?? adminUser);
+  const [selectedDesignacionId, setSelectedDesignacionIdState] = useState<string | null>(storedSession?.selectedDesignacionId ?? null);
+  const [hasConfirmedEntryMode, setHasConfirmedEntryMode] = useState(storedSession?.hasConfirmedEntryMode ?? false);
+  const [entryMode, setEntryMode] = useState<EntryMode>(storedSession?.entryMode ?? null);
+  const [isAuthenticated, setIsAuthenticated] = useState(storedSession?.isAuthenticated ?? false);
   const [isLoading, setIsLoading] = useState(true);
   const isAdmin = user.rol === "DECANO" || user.dni === ADMIN_DNI;
 
   const personasWithoutAdmin = useMemo(() => personas.filter((p) => p.dni !== ADMIN_DNI), [personas]);
   const accessModes = useMemo(() => buildAccessModesForUser(user), [user]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!isAuthenticated) {
+      clearSessionFromStorage();
+      return;
+    }
+
+    const payload: PersistedSession = {
+      user,
+      selectedDesignacionId,
+      hasConfirmedEntryMode,
+      entryMode,
+      isAuthenticated,
+    };
+    window.localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(payload));
+  }, [user, selectedDesignacionId, hasConfirmedEntryMode, entryMode, isAuthenticated]);
 
   useEffect(() => {
     let active = true;
@@ -399,7 +467,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
     const modes = buildAccessModesForUser(loggedUser);
     console.log("Modos de acceso detectados:", modes);
 
-    if (modes.length > 1) {
+    if (shouldPromptDesignacionSelection(modes)) {
       setUserState(loggedUser);
       setSelectedDesignacionIdState(null);
       setHasConfirmedEntryMode(false);
@@ -430,6 +498,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
     setHasConfirmedEntryMode(false);
     setEntryMode(null);
     setSelectedDesignacionIdState(null);
+    clearSessionFromStorage();
   };
 
   const selectedDesignacion = useMemo(() => {
@@ -454,7 +523,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
   const needsDesignacionSelection = useMemo(() => {
     if (!isAuthenticated || hasConfirmedEntryMode) return false;
-    return accessModes.length > 1;
+    return shouldPromptDesignacionSelection(accessModes);
   }, [accessModes, isAuthenticated, hasConfirmedEntryMode]);
 
   const confirmDesignacionSelection = (id: string) => {

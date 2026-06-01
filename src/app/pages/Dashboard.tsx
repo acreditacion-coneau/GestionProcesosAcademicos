@@ -13,7 +13,7 @@ export const Dashboard: React.FC = () => {
   const [showNewModal, setShowNewModal] = useState(false);
   const [showConfigModal, setShowConfigModal] = useState(false);
   const [filterMode, setFilterMode] = useState<'EN_CURSO' | 'TERMINADOS' | 'PENDIENTES'>('PENDIENTES');
-  const [estadoFilter, setEstadoFilter] = useState<'TODOS' | 'creada' | 'en_verificacion' | 'aprobada_jefe' | 'en_secretaria' | 'finalizada' | 'rechazada'>('TODOS');
+  const [estadoFilter, setEstadoFilter] = useState<'TODOS' | 'pendiente' | 'en_revision' | 'aprobada' | 'finalizada' | 'rechazada' | 'cancelada'>('TODOS');
   const [carreraFilter, setCarreraFilter] = useState<'TODAS' | string>('TODAS');
   const [searchTerm, setSearchTerm] = useState('');
   const isAcademicResponsable = isSelectedDesignacionResponsable();
@@ -159,12 +159,12 @@ export const Dashboard: React.FC = () => {
               className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:ring-1 focus:ring-blue-500 focus:border-blue-500 outline-none"
             >
               <option value="TODOS">Todos</option>
-              <option value="creada">creada</option>
-              <option value="en_verificacion">en_verificacion</option>
-              <option value="aprobada_jefe">aprobada_jefe</option>
-              <option value="en_secretaria">en_secretaria</option>
+              <option value="pendiente">pendiente</option>
+              <option value="en_revision">en_revision</option>
+              <option value="aprobada">aprobada</option>
               <option value="finalizada">finalizada</option>
               <option value="rechazada">rechazada</option>
+              <option value="cancelada">cancelada</option>
             </select>
           </div>
           <div>

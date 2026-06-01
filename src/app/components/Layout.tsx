@@ -93,14 +93,14 @@ function LayoutInner() {
                   <UserCircle className="w-5 h-5 text-white" />
                 )}
               </div>
-              <div>
-                <h1 className="text-xl font-bold leading-tight">Portal Docente</h1>
-                <p className="text-blue-200 text-xs">Autogestion Academica</p>
+              <div className="min-w-0">
+                <h1 className="text-base sm:text-xl font-bold leading-tight truncate">Portal Docente</h1>
+                <p className="text-blue-200 text-[11px] sm:text-xs truncate">Autogestion Academica</p>
               </div>
             </NavLink>
           </div>
 
-          <div className="flex items-center gap-3 md:gap-4 shrink-0">
+          <div className="flex items-center gap-2 sm:gap-3 md:gap-4 shrink-0 min-w-0">
             <div className="hidden lg:flex flex-col text-right gap-1.5">
               <span className="font-medium text-sm">{user.nombre} {user.apellido ?? ""}</span>
               <span className="text-blue-200 text-xs">
@@ -135,12 +135,13 @@ function LayoutInner() {
                 className="flex items-center gap-2 text-xs bg-blue-800 hover:bg-blue-700 px-3 py-1.5 rounded-xl border border-blue-700 transition-colors"
                 title="Simular una vista para demostracion"
               >
-                <span>Simular vista</span>
+                <span className="hidden sm:inline">Simular vista</span>
+                <span className="sm:hidden">Simular</span>
                 <ChevronDown className={`w-3 h-3 transition-transform ${simulatorOpen ? "rotate-180" : ""}`} />
               </button>
 
               {simulatorOpen && (
-                <div className="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden animate-in fade-in slide-in-from-top-2 z-50">
+                <div className="absolute mt-2 left-1/2 -translate-x-1/2 sm:left-auto sm:translate-x-0 sm:right-0 w-[min(20rem,calc(100vw-1rem))] sm:w-80 max-w-[calc(100vw-1rem)] bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden animate-in fade-in slide-in-from-top-2 z-50">
                   <div className="px-4 py-2 bg-slate-50 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-wide">
                     Simulador de roles
                   </div>
@@ -195,12 +196,12 @@ function LayoutInner() {
                 className="flex items-center gap-2 text-xs bg-white/10 hover:bg-white/15 px-3 py-1.5 rounded-xl border border-white/15 transition-colors"
               >
                 <UserCircle className="w-4 h-4" />
-                <span>{user.nombre || "Usuario"}</span>
+                <span className="hidden sm:inline max-w-24 truncate">{user.nombre || "Usuario"}</span>
                 <ChevronDown className={`w-3 h-3 transition-transform ${userMenuOpen ? "rotate-180" : ""}`} />
               </button>
 
               {userMenuOpen && (
-                <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden animate-in fade-in slide-in-from-top-2 z-50">
+                <div className="absolute mt-2 left-1/2 -translate-x-1/2 sm:left-auto sm:translate-x-0 sm:right-0 w-[min(14rem,calc(100vw-1rem))] sm:w-56 bg-white rounded-xl shadow-xl border border-slate-200 overflow-hidden animate-in fade-in slide-in-from-top-2 z-50">
                   <NavLink
                     to="/perfil"
                     onClick={() => setUserMenuOpen(false)}
@@ -224,7 +225,7 @@ function LayoutInner() {
         </div>
       </header>
 
-      <main className="flex-1 w-full px-4 md:px-8 lg:px-10 py-4 md:py-6 lg:py-8 relative z-0">
+      <main className="flex-1 w-full px-4 md:px-8 lg:px-10 py-4 md:py-6 lg:py-8">
         <Outlet />
       </main>
 

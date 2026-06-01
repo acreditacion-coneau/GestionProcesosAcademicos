@@ -9,6 +9,9 @@ const ROLE_LABELS: Record<string, string> = {
   responsable_extension: "Responsable de Extension",
   responsable_investigacion: "Responsable de Investigacion",
   administrativo: "Administrativo",
+  responsable: "Responsable de Catedra",
+  ayudante_alumno: "Ayudante Alumno",
+  ayudante_adscripto: "Ayudante Adscripto",
   docente: "Docente",
 };
 

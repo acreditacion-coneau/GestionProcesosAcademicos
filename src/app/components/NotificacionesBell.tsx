@@ -18,7 +18,7 @@ function timeAgo(iso: string): string {
   if (mins < 60) return `hace ${mins} min`;
   const hrs = Math.floor(mins / 60);
   if (hrs < 24) return `hace ${hrs} h`;
-  return `hace ${Math.floor(hrs / 24)} días`;
+  return `hace ${Math.floor(hrs / 24)} dias`;
 }
 
 export function NotificacionesBell() {
@@ -27,10 +27,9 @@ export function NotificacionesBell() {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  const myNotifs = notificaciones.filter(n => n.rolDestino === user.rol);
+  const myNotifs = notificaciones.filter((n) => n.rolDestino === user.rol);
   const count = unreadCount(user.rol);
 
-  // Close on outside click
   useEffect(() => {
     function handler(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
@@ -41,9 +40,8 @@ export function NotificacionesBell() {
 
   return (
     <div ref={ref} className="relative">
-      {/* Bell button */}
       <button
-        onClick={() => setOpen(o => !o)}
+        onClick={() => setOpen((o) => !o)}
         className="relative w-10 h-10 bg-white/10 hover:bg-white/20 rounded-full flex items-center justify-center transition-colors"
         title="Notificaciones"
       >
@@ -55,21 +53,19 @@ export function NotificacionesBell() {
         )}
       </button>
 
-      {/* Dropdown */}
       {open && (
-        <div className="absolute right-0 top-12 w-80 sm:w-96 bg-white rounded-2xl shadow-2xl border border-slate-200 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
-          {/* Header */}
+        <div className="absolute top-12 left-1/2 -translate-x-1/2 sm:left-auto sm:translate-x-0 sm:right-0 w-[min(24rem,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] sm:w-96 bg-white rounded-2xl shadow-2xl border border-slate-200 z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
           <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
-            <div className="flex items-center gap-2">
-              <Bell className="w-4 h-4 text-slate-600" />
-              <span className="font-bold text-slate-800 text-sm">Notificaciones</span>
+            <div className="flex items-center gap-2 min-w-0">
+              <Bell className="w-4 h-4 text-slate-600 shrink-0" />
+              <span className="font-bold text-slate-800 text-sm truncate">Notificaciones</span>
               {count > 0 && (
-                <span className="bg-amber-100 text-amber-700 text-xs font-bold px-2 py-0.5 rounded-full border border-amber-200">
+                <span className="bg-amber-100 text-amber-700 text-xs font-bold px-2 py-0.5 rounded-full border border-amber-200 shrink-0">
                   {count} nuevas
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 shrink-0">
               {count > 0 && (
                 <button
                   onClick={() => marcarTodasLeidas(user.rol)}
@@ -84,14 +80,11 @@ export function NotificacionesBell() {
             </div>
           </div>
 
-          {/* List */}
-          <div className="max-h-[400px] overflow-y-auto divide-y divide-slate-50">
+          <div className="max-h-[min(26rem,60dvh)] sm:max-h-[400px] overflow-y-auto divide-y divide-slate-50">
             {myNotifs.length === 0 ? (
-              <div className="px-4 py-8 text-center text-slate-400 text-sm">
-                No hay notificaciones
-              </div>
+              <div className="px-4 py-8 text-center text-slate-400 text-sm">No hay notificaciones</div>
             ) : (
-              myNotifs.map(n => (
+              myNotifs.map((n) => (
                 <div
                   key={n.id}
                   className={`flex gap-3 px-4 py-3 hover:bg-slate-50 transition-colors cursor-pointer ${!n.leida ? "bg-amber-50/60" : ""}`}
@@ -105,9 +98,7 @@ export function NotificacionesBell() {
                       <p className={`text-sm ${!n.leida ? "font-semibold text-slate-800" : "font-medium text-slate-600"} leading-snug`}>
                         {n.titulo}
                       </p>
-                      {!n.leida && (
-                        <span className="w-2 h-2 bg-amber-400 rounded-full shrink-0 mt-1.5" />
-                      )}
+                      {!n.leida && <span className="w-2 h-2 bg-amber-400 rounded-full shrink-0 mt-1.5" />}
                     </div>
                     <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">{n.mensaje}</p>
                     <div className="flex items-center justify-between mt-1.5">
@@ -118,7 +109,7 @@ export function NotificacionesBell() {
                           onClick={() => setOpen(false)}
                           className="text-xs text-blue-600 hover:text-blue-800 flex items-center gap-0.5 font-medium"
                         >
-                          Ver trámite <ChevronRight className="w-3 h-3" />
+                          Ver tramite <ChevronRight className="w-3 h-3" />
                         </Link>
                       )}
                     </div>
@@ -128,7 +119,6 @@ export function NotificacionesBell() {
             )}
           </div>
 
-          {/* Footer */}
           <div className="border-t border-slate-100 px-4 py-3">
             <Link
               to="/notificaciones"

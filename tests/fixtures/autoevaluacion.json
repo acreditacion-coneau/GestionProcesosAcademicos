@@ -1,0 +1,25 @@
+{
+  "roles": {
+    "docente": {
+      "dni": "12345678",
+      "password": "12345678"
+    },
+    "secretaria": {
+      "dni": "45678901",
+      "password": "45678901"
+    },
+    "jefe": {
+      "env": ["E2E_JEFE_DNI", "E2E_JEFE_PASSWORD"]
+    }
+  },
+  "campania": {
+    "id": "e2e-campania-activa",
+    "nombre": "Autoevaluacion Testing 2026",
+    "estado": "activa"
+  },
+  "asignaciones": {
+    "pendiente": "e2e-asignacion-pendiente",
+    "completada": "e2e-asignacion-completada",
+    "vencida": "e2e-asignacion-vencida"
+  }
+}

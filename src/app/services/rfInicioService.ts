@@ -1,7 +1,13 @@
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
-import type { AlumnoPropuesto, CicloConfig, Tramite } from "../context/TramitesContext";
+import type { CicloConfig, Tramite } from "../context/TramitesContext";
 
 type SexoGramatical = "F" | "M";
+
+export interface RfInicioAlumno {
+  nombreCompleto: string;
+  dni: string;
+  sexoGramatical: SexoGramatical;
+}
 
 export interface RfInicioPayload {
   rfNumero: string;
@@ -11,11 +17,7 @@ export interface RfInicioPayload {
   anioCarrera: string;
   carrera: string;
   regimen: "Semestral" | "Anual";
-  alumnos: Array<{
-    nombreCompleto: string;
-    dni: string;
-    sexoGramatical: SexoGramatical;
-  }>;
+  alumnos: RfInicioAlumno[];
 }
 
 const MONTHS_ES = [
@@ -41,7 +43,7 @@ function parseIsoDate(dateLike: string) {
 
 function formatFechaLegal(dateLike: string) {
   const d = parseIsoDate(dateLike);
-  return `${d.getDate()} días del mes de ${MONTHS_ES[d.getMonth()]} de ${d.getFullYear()}`;
+  return `${d.getDate()} dias del mes de ${MONTHS_ES[d.getMonth()]} de ${d.getFullYear()}`;
 }
 
 function formatFechaLarga(dateLike: string) {
@@ -52,21 +54,19 @@ function formatFechaLarga(dateLike: string) {
 function formatDni(dni: string) {
   const digits = dni.replace(/\D/g, "");
   if (!digits) return dni;
-  return Number(digits).toLocaleString("es-AR");
+  const normalized = digits.padStart(8, "0");
+  return `${normalized.slice(0, 2)}.${normalized.slice(2, 5)}.${normalized.slice(5)}`;
 }
 
 function formatNombreLegal(nombreCompleto: string) {
-  const value = nombreCompleto.trim();
-  if (!value) return "";
-  if (value.includes(",")) return value.toUpperCase();
-  return value.toUpperCase();
+  return nombreCompleto.trim().toUpperCase();
 }
 
-function formatAlumnoLegal(alumno: RfInicioPayload["alumnos"][number]) {
-  return `${formatNombreLegal(alumno.nombreCompleto)} – DNI ${formatDni(alumno.dni)}`;
+function formatAlumnoLegal(alumno: RfInicioAlumno) {
+  return `${formatNombreLegal(alumno.nombreCompleto)} - DNI ${formatDni(alumno.dni)}`;
 }
 
-function joinListadoAlumnos(alumnos: RfInicioPayload["alumnos"]) {
+function joinListadoAlumnos(alumnos: RfInicioAlumno[]) {
   if (alumnos.length === 0) return "";
   const formatted = alumnos.map(formatAlumnoLegal);
   if (formatted.length === 1) return formatted[0];
@@ -74,40 +74,50 @@ function joinListadoAlumnos(alumnos: RfInicioPayload["alumnos"]) {
   return `${formatted.slice(0, -1).join(", ")} y ${formatted[formatted.length - 1]}`;
 }
 
-function getSexoGrupo(alumnos: RfInicioPayload["alumnos"]): SexoGramatical {
-  if (alumnos.length === 0) return "M";
-  const allF = alumnos.every((a) => a.sexoGramatical === "F");
-  return allF ? "F" : "M";
+function normalizeAnioLegal(raw: string) {
+  const lower = raw.trim().toLowerCase();
+  if (lower.includes("1")) return "1er ano";
+  if (lower.includes("2")) return "2do ano";
+  if (lower.includes("3")) return "3er ano";
+  if (lower.includes("4")) return "4to ano";
+  if (lower.includes("5")) return "5to ano";
+  return raw.trim();
 }
 
-function buildGeneroTexto(alumnos: RfInicioPayload["alumnos"]) {
-  const cantidad = alumnos.length;
-  const sexoGrupo = getSexoGrupo(alumnos);
-  const plural = cantidad !== 1;
+function buildNumeroResolucionDefault(fechaSolicitud: string) {
+  const year = parseIsoDate(fechaSolicitud).getFullYear();
+  return `${year}`;
+}
 
-  const deLosElLaLas = plural
-    ? sexoGrupo === "F"
-      ? "de las"
-      : "de los"
-    : sexoGrupo === "F"
-      ? "de la"
-      : "del";
+function buildPluralTokens(alumnos: RfInicioAlumno[]) {
+  const plural = alumnos.length !== 1;
+  return {
+    deElLos: plural ? "de los" : "del",
+    ayudanteAyudantes: plural ? "Ayudantes Alumnos" : "Ayudante Alumno",
+    losAlumnos: plural ? "los alumnos" : "el alumno",
+    cumpleCumplen: plural ? "cumplen" : "cumple",
+    designarElLos: plural ? "DESIGNAR a los alumnos" : "DESIGNAR al alumno",
+  };
+}
 
-  const los = plural ? (sexoGrupo === "F" ? "las" : "los") : sexoGrupo === "F" ? "la" : "el";
-  const alumnosPalabra = plural ? (sexoGrupo === "F" ? "alumnas" : "alumnos") : sexoGrupo === "F" ? "alumna" : "alumno";
-  const ayudantesAlumnos = plural
-    ? sexoGrupo === "F"
-      ? "Ayudantes Alumnas"
-      : "Ayudantes Alumnos"
-    : sexoGrupo === "F"
-      ? "Ayudante Alumna"
-      : "Ayudante Alumno";
+function cleanPayload(payload: RfInicioPayload): RfInicioPayload {
+  const alumnos = payload.alumnos
+    .map((alumno) => ({
+      nombreCompleto: alumno.nombreCompleto.trim(),
+      dni: alumno.dni.replace(/\D/g, ""),
+      sexoGramatical: alumno.sexoGramatical === "F" ? "F" : "M",
+    }))
+    .filter((alumno) => alumno.nombreCompleto && alumno.dni);
 
   return {
-    deLosElLaLas,
-    los,
-    alumnosPalabra,
-    ayudantesAlumnos,
+    rfNumero: payload.rfNumero.trim() || buildNumeroResolucionDefault(payload.fechaSolicitud),
+    fechaSolicitud: payload.fechaSolicitud,
+    fechaInicioCiclo: payload.fechaInicioCiclo,
+    materia: payload.materia.trim(),
+    anioCarrera: normalizeAnioLegal(payload.anioCarrera),
+    carrera: payload.carrera.trim(),
+    regimen: payload.regimen,
+    alumnos,
   };
 }
 
@@ -116,43 +126,42 @@ export function buildRfInicioPayload(
   cicloConfig: CicloConfig,
   rfNumero?: string,
 ): RfInicioPayload {
-  const normalizedAlumnos = tramite.alumnosPropuestos.map((alumno) => ({
-    nombreCompleto: alumno.nombreCompleto,
-    dni: alumno.dni,
-    sexoGramatical: alumno.sexoGramatical ?? "M",
-  }));
-
-  return {
-    rfNumero: rfNumero?.trim() || "65/2026",
+  return cleanPayload({
+    rfNumero: rfNumero?.trim() || "",
     fechaSolicitud: tramite.fechaSolicitud,
     fechaInicioCiclo: cicloConfig.inicioClases,
     materia: tramite.materia,
     anioCarrera: tramite.anioCarrera,
     carrera: tramite.carrera,
     regimen: tramite.regimen,
-    alumnos: normalizedAlumnos,
-  };
+    alumnos: (tramite.alumnosPropuestos ?? []).map((alumno) => ({
+      nombreCompleto: alumno.nombreCompleto,
+      dni: alumno.dni,
+      sexoGramatical: alumno.sexoGramatical ?? "M",
+    })),
+  });
 }
 
-function buildRfInicioLegalText(payload: RfInicioPayload) {
+function buildRfInicioLegalText(payloadInput: RfInicioPayload) {
+  const payload = cleanPayload(payloadInput);
   const fechaLegal = formatFechaLegal(payload.fechaSolicitud);
   const fechaInicio = formatFechaLarga(payload.fechaInicioCiclo);
   const regimen = payload.regimen.toLowerCase();
   const alumnosListado = joinListadoAlumnos(payload.alumnos);
-  const genero = buildGeneroTexto(payload.alumnos);
+  const tokens = buildPluralTokens(payload.alumnos);
 
   return [
-    `RESOLUCIÓN N°${payload.rfNumero}`,
+    `RESOLUCION Nro ${payload.rfNumero}`,
     "",
-    `En la Facultad de Arquitectura y Urbanismo, Campo Castañares, sito en la ciudad de Salta, Capital de la Provincia del mismo nombre, República Argentina, sede de LA UNIVERSIDAD CATÓLICA DE SALTA, a los ${fechaLegal}.`,
+    `En la Facultad de Arquitectura y Urbanismo, Campo Castanares, sito en la ciudad de Salta, Capital de la Provincia del mismo nombre, Republica Argentina, sede de LA UNIVERSIDAD CATOLICA DE SALTA, a los ${fechaLegal}.`,
     "",
-    `La presentación efectuada por la cátedra de ${payload.materia} correspondiente a ${payload.anioCarrera} año de la carrera de ${payload.carrera}, solicitando la designación ${genero.deLosElLaLas} estudiantes ${alumnosListado} como ${genero.ayudantesAlumnos}, y;`,
+    `La presentacion efectuada por la catedra de ${payload.materia} correspondiente a ${payload.anioCarrera} de la carrera de ${payload.carrera}, solicitando la designacion ${tokens.deElLos} estudiantes ${alumnosListado} como ${tokens.ayudanteAyudantes}, y;`,
     "",
-    `Que ${genero.los} ${genero.alumnosPalabra} cuya designación se solicita cumple/n con los requisitos exigidos por la Resolución Rectoral N°1193/22.`,
+    `Que ${tokens.losAlumnos} cuya designacion se solicita ${tokens.cumpleCumplen} con los requisitos exigidos por la Resolucion Rectoral Nro 1193/22.`,
     "",
-    `Artículo 1°: DESIGNAR a ${genero.los} ${genero.alumnosPalabra} ${alumnosListado}, como ${genero.ayudantesAlumnos} en la asignatura de ${payload.materia} correspondiente a ${payload.anioCarrera} año, cursado ${regimen}, de la carrera de ${payload.carrera}, a partir del día ${fechaInicio}.`,
+    `Articulo 1: ${tokens.designarElLos} ${alumnosListado}, como ${tokens.ayudanteAyudantes} en la asignatura de ${payload.materia} correspondiente a ${payload.anioCarrera}, cursado ${regimen}, de la carrera de ${payload.carrera}, a partir del dia ${fechaInicio}.`,
     "",
-    `Artículo 3°: NOTIFICAR a los docentes de la cátedra ${payload.materia} y alumnos interesados. Regístrese y archívese.`,
+    `Articulo 3: NOTIFICAR a los docentes de la catedra ${payload.materia} y alumnos interesados. Registrese y archivese.`,
   ];
 }
 
@@ -195,8 +204,8 @@ function createFallbackPdfFromText(lines: string[]) {
   return new TextEncoder().encode(header + body + xref + trailer);
 }
 
-export async function emitirRfInicioDesdeTemplatePdf(payload: RfInicioPayload) {
-  const lines = buildRfInicioLegalText(payload);
+export async function emitirRfInicioDesdeTemplatePdf(payloadInput: RfInicioPayload) {
+  const lines = buildRfInicioLegalText(payloadInput);
   const templateBytes = await loadTemplateBytes();
 
   if (!templateBytes) {
@@ -215,7 +224,7 @@ export async function emitirRfInicioDesdeTemplatePdf(payload: RfInicioPayload) {
     firstPage.drawText(line, {
       x: marginX,
       y,
-      size: line.startsWith("RESOLUCIÓN") ? 12 : 10,
+      size: line.startsWith("RESOLUCION") ? 12 : 10,
       font: helvetica,
       color: rgb(0, 0, 0),
       maxWidth: firstPage.getWidth() - 100,
