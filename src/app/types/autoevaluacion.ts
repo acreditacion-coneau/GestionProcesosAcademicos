@@ -20,6 +20,12 @@ export interface AsignacionEvaluacion {
   idAsignatura: string;
   estado: EstadoAsignacion;
   createdAt: string;
+  fechaRespuesta?: string | null;
+  completedAt?: string | null;
+  firmaHash?: string | null;
+  firmaBase64?: string | null;
+  firmadaAt?: string | null;
+  docenteNombre?: string;
   asignatura: string;
   carrera: string;
 }
@@ -59,6 +65,7 @@ export interface AutoevaluacionDetalle {
 
 export interface DashboardJefeCarrera {
   totalDocentes: number;
+  totalAsignaciones: number;
   pendientes: number;
   completadas: number;
   vencidas: number;
@@ -66,9 +73,17 @@ export interface DashboardJefeCarrera {
   detalle: Array<{
     idAsignacion: string;
     docente: string;
+    carrera: string;
     asignatura: string;
     estado: EstadoAsignacion;
     fechaEnvio: string | null;
+    fechaRespuesta?: string | null;
+  }>;
+  porAsignatura: Array<{
+    asignatura: string;
+    completadas: number;
+    pendientes: number;
+    vencidas: number;
   }>;
 }
 
@@ -79,12 +94,48 @@ export interface DashboardSecretaria {
   completadas: number;
   vencidas: number;
   advertencias: number;
+  porcentajeCompletado?: number;
+  porEstado?: Array<{ estado: string; cantidad: number }>;
   auditoriaReciente: Array<{
     id: string;
     accion: string;
     actor: string;
     createdAt: string;
   }>;
+}
+
+export interface SecretariaAutoevaluacionRow {
+  idAsignacion: string;
+  docente: string;
+  asignatura: string;
+  carrera: string;
+  estado: EstadoAsignacion;
+  fechaRespuesta: string | null;
+  firma: "Firmada" | "Sin firma";
+  firmaHash?: string | null;
+}
+
+export interface SecretariaCarreraProgress {
+  carrera: string;
+  total: number;
+  completadas: number;
+  pendientes: number;
+  vencidas: number;
+  porcentajeCompletado: number;
+}
+
+export interface SecretariaAutoevaluacionDashboard {
+  campanias: CampaniaEvaluacion[];
+  campaniaActiva: CampaniaEvaluacion | null;
+  totalAsignaciones: number;
+  completadas: number;
+  pendientes: number;
+  vencidas: number;
+  porcentajeCompletado: number;
+  porcentajeCompletadoVista: number | null;
+  porEstado: Array<{ estado: "Completadas" | "Pendientes" | "Vencidas"; cantidad: number }>;
+  porCarrera: SecretariaCarreraProgress[];
+  docentes: SecretariaAutoevaluacionRow[];
 }
 
 export interface CampaniaCreateInput {
@@ -107,5 +158,14 @@ export interface ExportRow {
   asignatura: string;
   estado: EstadoAsignacion;
   fechaEnvio: string | null;
+  respuestas: string;
+  observaciones: string;
+  firma: string;
+  firmaHash?: string | null;
   cantidadRespuestas: number;
+}
+
+export interface CompletarAutoevaluacionInput {
+  firmaHash: string;
+  firmaBase64: string;
 }

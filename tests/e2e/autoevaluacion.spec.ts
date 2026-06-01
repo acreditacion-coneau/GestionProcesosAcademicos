@@ -22,11 +22,11 @@ test.describe("Autoevaluacion - flujos reales", () => {
     await page.goto("/autoevaluacion");
 
     await expect(page.getByText("Mis autoevaluaciones")).toBeVisible();
-    await page.getByRole("button", { name: /iniciar evaluacion/i }).first().click();
+    await page.getByRole("button", { name: /completar/i }).first().click();
     await expect(page.getByText(/Formulario 1 de/i)).toBeVisible();
 
     while (await page.getByRole("button", { name: /siguiente formulario/i }).isVisible().catch(() => false)) {
-      const optionButtons = page.getByRole("button", { name: "Si" });
+      const optionButtons = page.getByRole("radio", { name: "Si" });
       const optionCount = await optionButtons.count();
       for (let index = 0; index < optionCount; index += 1) {
         await optionButtons.nth(index).click();
@@ -41,7 +41,7 @@ test.describe("Autoevaluacion - flujos reales", () => {
       await page.getByRole("button", { name: /siguiente formulario/i }).click();
     }
 
-    const finalYesButtons = page.getByRole("button", { name: "Si" });
+    const finalYesButtons = page.getByRole("radio", { name: "Si" });
     for (let index = 0; index < await finalYesButtons.count(); index += 1) {
       await finalYesButtons.nth(index).click();
     }
@@ -72,9 +72,9 @@ test.describe("Autoevaluacion - flujos reales", () => {
   test("CASO 4: docente no puede editar evaluacion completada", async ({ page }, testInfo) => {
     await loginAs(page, "docente", testInfo);
     await page.goto("/autoevaluacion");
-    await page.getByRole("button", { name: /visualizar respuestas/i }).first().click();
+    await page.getByRole("button", { name: /ver respuestas enviadas/i }).first().click();
 
-    await expect(page.getByRole("button", { name: "Si" }).first()).toBeDisabled();
+    await expect(page.getByRole("radio", { name: "Si" }).first()).toBeDisabled();
     await expect(page.getByRole("button", { name: /enviar evaluacion/i })).toBeHidden();
   });
 

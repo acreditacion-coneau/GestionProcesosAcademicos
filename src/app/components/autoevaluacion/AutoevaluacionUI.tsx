@@ -10,7 +10,7 @@ export function getEstadoVisual(estadoRaw: string) {
   if (estado === "completada") {
     return {
       label: "Completada",
-      emoji: "??",
+      emoji: "🟢",
       className: "bg-emerald-50 text-emerald-700 border-emerald-200",
       icon: CheckCircle2,
     };
@@ -19,7 +19,7 @@ export function getEstadoVisual(estadoRaw: string) {
   if (estado === "vencida") {
     return {
       label: "Vencida",
-      emoji: "??",
+      emoji: "🔴",
       className: "bg-rose-50 text-rose-700 border-rose-200",
       icon: AlertTriangle,
     };
@@ -27,7 +27,7 @@ export function getEstadoVisual(estadoRaw: string) {
 
   return {
     label: "Pendiente",
-    emoji: "??",
+    emoji: "🟡",
     className: "bg-amber-50 text-amber-700 border-amber-200",
     icon: Clock3,
   };

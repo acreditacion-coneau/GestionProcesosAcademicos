@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useForm } from "react-hook-form";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useForm, useWatch } from "react-hook-form";
 import { AnimatePresence, motion } from "motion/react";
 import {
   ArrowLeft,
@@ -7,13 +7,27 @@ import {
   ChevronRight,
   ClipboardList,
   Download,
+  Eye,
   FileSpreadsheet,
-  Filter,
+  Loader2,
   Search,
   Send,
   ShieldAlert,
 } from "lucide-react";
 import { NavLink } from "react-router";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Legend,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { useUser } from "../context/UserContext";
 import { SignaturePad } from "../components/autoevaluacion/SignaturePad";
 import {
@@ -34,8 +48,8 @@ import {
 import { Input } from "../components/ui/input";
 import { Textarea } from "../components/ui/textarea";
 import {
-  crearCampania,
   cerrarCampania,
+  crearCampania,
   enviarAutoevaluacion,
   exportarAsignacionExcel,
   exportarCampaniaExcel,
@@ -81,8 +95,11 @@ const ANSWER_OPTIONS = [
   },
 ] as const;
 
+const ESTADO_OPTIONS = ["todos", "pendiente", "completada", "vencida"] as const;
+const CHART_COLORS = ["#10b981", "#f59e0b", "#ef4444"];
+
 type DocenteFormValues = Record<string, string | boolean>;
-type EstadoFiltro = "todos" | "pendiente" | "completada" | "vencida";
+type EstadoFiltro = typeof ESTADO_OPTIONS[number];
 type ConfirmationState = {
   idAsignacion: string;
   asignatura: string;
@@ -97,19 +114,26 @@ function formatDate(value: string | null | undefined): string {
   return date.toLocaleDateString("es-AR");
 }
 
-function resolveCampaignName(
-  campaigns: CampaniaEvaluacion[],
-  idCampania: string,
-): string {
-  return campaigns.find((item) => item.idCampania === idCampania)?.nombre ?? "Campana";
+function getYear(value: string | null | undefined): string {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value.slice(0, 4) : String(date.getFullYear());
+}
+
+function resolveCampaign(campaigns: CampaniaEvaluacion[], idCampania: string): CampaniaEvaluacion | undefined {
+  return campaigns.find((item) => item.idCampania === idCampania);
+}
+
+function resolveCampaignName(campaigns: CampaniaEvaluacion[], idCampania: string): string {
+  return resolveCampaign(campaigns, idCampania)?.nombre ?? "Campana";
 }
 
 function parseTipoFromDescripcion(descripcion: string | null): string {
   const raw = (descripcion ?? "").toLowerCase();
-  if (raw.includes("1er_semestre")) return "1er_semestre";
-  if (raw.includes("2do_semestre")) return "2do_semestre";
-  if (raw.includes("anual")) return "anual";
-  return "sin_tipo";
+  if (raw.includes("1er_semestre")) return "1er semestre";
+  if (raw.includes("2do_semestre")) return "2do semestre";
+  if (raw.includes("anual")) return "Anual";
+  return "Sin tipo";
 }
 
 function isTextQuestion(question: PreguntaEvaluacion): boolean {
@@ -119,13 +143,100 @@ function isTextQuestion(question: PreguntaEvaluacion): boolean {
 
 function getHumanErrorMessage(raw: string): string {
   const normalized = raw.toLowerCase();
-  if (normalized.includes("row-level security") || normalized.includes("policy")) {
+  if (normalized.includes("row-level security") || normalized.includes("policy") || normalized.includes("permission")) {
     return "No tiene permisos para esta accion en este momento. Contacte a Secretaria Academica.";
   }
-  if (normalized.includes("network") || normalized.includes("fetch")) {
-    return "No pudimos conectarnos con el servidor. Verifique su conexion e intente nuevamente.";
+  if (normalized.includes("network") || normalized.includes("fetch") || normalized.includes("abort")) {
+    return "No pudimos conectarnos con Supabase. Verifique su conexion e intente nuevamente.";
   }
-  return "No pudimos guardar las respuestas. Intente nuevamente.";
+  if (normalized.includes("firma")) {
+    return "La firma digital es obligatoria para completar la evaluacion.";
+  }
+  if (normalized.includes("completar_asignacion")) {
+    return "No se pudo completar la evaluacion con la RPC institucional.";
+  }
+  return raw || "No pudimos completar la operacion. Intente nuevamente.";
+}
+
+function getEstadoEfectivo(asignacion: AsignacionEvaluacion, campanias: CampaniaEvaluacion[]): string {
+  const estado = asignacion.estado.toLowerCase();
+  if (estado === "vencida" || estado === "completada") return estado;
+  const campania = resolveCampaign(campanias, asignacion.idCampania);
+  if (!campania?.fechaFin || estado !== "pendiente") return estado;
+  const fin = new Date(`${campania.fechaFin}T23:59:59`);
+  return Number.isFinite(fin.getTime()) && fin.getTime() < Date.now() ? "vencida" : estado;
+}
+
+function dataUrlToBase64(dataUrl: string): string {
+  return dataUrl.includes(",") ? dataUrl.split(",")[1] ?? "" : dataUrl;
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  if (!crypto?.subtle) {
+    let hash = 0;
+    for (let index = 0; index < value.length; index += 1) {
+      hash = ((hash << 5) - hash + value.charCodeAt(index)) | 0;
+    }
+    return `fallback-${Math.abs(hash)}`;
+  }
+
+  const bytes = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest))
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+function StatusMessage({ message }: { message: string }) {
+  if (!message) return null;
+  const ok = message.toLowerCase().includes("correctamente");
+  return (
+    <p
+      aria-live="polite"
+      className={`text-sm rounded-lg px-3 py-2 border ${
+        ok
+          ? "text-emerald-700 border-emerald-200 bg-emerald-50"
+          : "text-rose-700 border-rose-200 bg-rose-50"
+      }`}
+    >
+      {message}
+    </p>
+  );
+}
+
+function LoadingBlock({ label = "Cargando informacion..." }: { label?: string }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-6 text-slate-500 flex items-center gap-2">
+      <Loader2 className="w-4 h-4 animate-spin" />
+      <span className="text-sm">{label}</span>
+    </div>
+  );
+}
+
+function EmptyState({ children }: { children: string }) {
+  return (
+    <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 text-center text-slate-500 py-10 px-4">
+      {children}
+    </div>
+  );
+}
+
+function MetricChart({ data }: { data: Array<{ name: string; value: number }> }) {
+  return (
+    <div className="h-64 min-w-0">
+      <ResponsiveContainer width="100%" height="100%">
+        <PieChart>
+          <Pie data={data} dataKey="value" nameKey="name" outerRadius={82} label>
+            {data.map((_, index) => (
+              <Cell key={index} fill={CHART_COLORS[index % CHART_COLORS.length]} />
+            ))}
+          </Pie>
+          <Tooltip />
+          <Legend />
+        </PieChart>
+      </ResponsiveContainer>
+    </div>
+  );
 }
 
 function CompletionScreen({
@@ -138,11 +249,7 @@ function CompletionScreen({
   onBack: () => void;
 }) {
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3 }}
-    >
+    <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}>
       <Card className="border-emerald-200 bg-emerald-50/50 shadow-sm">
         <CardContent className="pt-8 pb-8">
           <div className="max-w-2xl mx-auto text-center space-y-6">
@@ -152,20 +259,20 @@ function CompletionScreen({
             <div>
               <h3 className="text-2xl font-bold text-slate-900">Evaluacion completada</h3>
               <p className="text-slate-600 mt-2">
-                Su evaluacion fue enviada correctamente y quedo bloqueada para edicion.
+                La RPC institucional completo la asignacion y bloqueo la edicion.
               </p>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-left">
               <InfoMini label="Asignatura" value={confirmation.asignatura} />
               <InfoMini label="Campana" value={confirmation.campania} />
-              <InfoMini label="Fecha de envio" value={confirmation.fecha} />
+              <InfoMini label="Fecha respuesta" value={confirmation.fecha} />
             </div>
             <div className="flex flex-wrap justify-center gap-2">
               <Button type="button" onClick={onDownload}>
                 <Download className="w-4 h-4" /> Descargar Excel
               </Button>
               <Button type="button" variant="outline" onClick={onBack}>
-                Volver al listado
+                Volver al dashboard
               </Button>
             </div>
           </div>
@@ -177,45 +284,47 @@ function CompletionScreen({
 
 function InfoMini({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-emerald-200 bg-white px-3 py-2">
+    <div className="rounded-xl border border-emerald-200 bg-white px-3 py-2 min-w-0">
       <p className="text-xs uppercase tracking-wide text-slate-500">{label}</p>
-      <p className="text-sm font-semibold text-slate-900 mt-1">{value}</p>
+      <p className="text-sm font-semibold text-slate-900 mt-1 break-words">{value}</p>
     </div>
   );
 }
 
 function DocenteAutoevaluacion() {
   const { user } = useUser();
-
   const [docenteId, setDocenteId] = useState<string>(user.idDocente ?? "");
   const [asignaciones, setAsignaciones] = useState<AsignacionEvaluacion[]>([]);
   const [campanias, setCampanias] = useState<CampaniaEvaluacion[]>([]);
   const [detalle, setDetalle] = useState<AutoevaluacionDetalle | null>(null);
   const [signatureDataUrl, setSignatureDataUrl] = useState<string | null>(null);
+  const [signatureHash, setSignatureHash] = useState<string>("");
   const [statusMessage, setStatusMessage] = useState<string>("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [search, setSearch] = useState("");
   const [filtroEstado, setFiltroEstado] = useState<EstadoFiltro>("todos");
+  const [filtroAnio, setFiltroAnio] = useState("todos");
+  const [filtroAsignatura, setFiltroAsignatura] = useState("todos");
   const [observacionOpen, setObservacionOpen] = useState<Record<string, boolean>>({});
   const [observaciones, setObservaciones] = useState<Record<string, string>>({});
   const [confirmation, setConfirmation] = useState<ConfirmationState | null>(null);
   const [currentFormIndex, setCurrentFormIndex] = useState(0);
+  const [loadingList, setLoadingList] = useState(false);
+  const [loadingDetalle, setLoadingDetalle] = useState(false);
 
   const questionRefs = useRef<Record<string, HTMLDivElement | null>>({});
-
-  const { register, handleSubmit, reset, formState, setValue, watch } =
+  const { register, handleSubmit, reset, formState, setValue, control } =
     useForm<DocenteFormValues>({ mode: "onChange" });
+  const values = useWatch({ control }) ?? {};
 
   useEffect(() => {
     let active = true;
-
     async function resolve() {
       if (user.idDocente) {
         setDocenteId(user.idDocente);
         return;
       }
-
       try {
         const found = await resolveDocenteIdByDni(user.dni);
         if (active) setDocenteId(found ?? "");
@@ -223,55 +332,73 @@ function DocenteAutoevaluacion() {
         if (active) setDocenteId("");
       }
     }
-
     void resolve();
-
     return () => {
       active = false;
     };
   }, [user.idDocente, user.dni]);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     if (!docenteId) {
       setAsignaciones([]);
       setCampanias([]);
       return;
     }
 
-    const [nextAsignaciones, nextCampanias] = await Promise.all([
-      getMisAsignaciones(docenteId),
-      getCampanias(),
-    ]);
-
-    setAsignaciones(nextAsignaciones);
-    setCampanias(nextCampanias);
-  };
-
-  useEffect(() => {
-    void loadData();
+    setLoadingList(true);
+    try {
+      const [nextAsignaciones, nextCampanias] = await Promise.all([
+        getMisAsignaciones(docenteId),
+        getCampanias(),
+      ]);
+      setAsignaciones(nextAsignaciones);
+      setCampanias(nextCampanias);
+    } catch (error) {
+      setStatusMessage(getHumanErrorMessage(error instanceof Error ? error.message : ""));
+    } finally {
+      setLoadingList(false);
+    }
   }, [docenteId]);
 
+  useEffect(() => {
+    let active = true;
+    void loadData().finally(() => {
+      if (!active) return;
+    });
+    return () => {
+      active = false;
+    };
+  }, [loadData]);
+
   const openAsignacion = async (idAsignacion: string) => {
-    const nextDetalle = await getAutoevaluacionDetalle(idAsignacion);
-    setDetalle(nextDetalle);
-    setSignatureDataUrl(null);
+    setLoadingDetalle(true);
     setStatusMessage("");
-    setSubmitAttempted(false);
-    setConfirmation(null);
-    setObservacionOpen({});
-    setObservaciones({});
-    setCurrentFormIndex(0);
+    try {
+      const nextDetalle = await getAutoevaluacionDetalle(idAsignacion);
+      setDetalle(nextDetalle);
+      setSignatureDataUrl(nextDetalle?.asignacion.firmaBase64 ? `data:image/png;base64,${nextDetalle.asignacion.firmaBase64}` : null);
+      setSignatureHash(nextDetalle?.asignacion.firmaHash ?? "");
+      setSubmitAttempted(false);
+      setConfirmation(null);
+      setObservacionOpen({});
+      setObservaciones({});
+      setCurrentFormIndex(0);
 
-    if (!nextDetalle) {
-      reset({});
-      return;
-    }
+      if (!nextDetalle) {
+        reset({});
+        return;
+      }
 
-    const defaults: DocenteFormValues = { __declaracion: false };
-    for (const respuesta of nextDetalle.respuestas) {
-      defaults[respuesta.idPregunta] = respuesta.respuesta;
+      const defaults: DocenteFormValues = { __declaracion: nextDetalle.bloqueada };
+      for (const respuesta of nextDetalle.respuestas) {
+        defaults[respuesta.idPregunta] = respuesta.respuesta.replace(/\nObs:\s*.*$/is, "");
+      }
+      reset(defaults);
+    } catch (error) {
+      setStatusMessage(getHumanErrorMessage(error instanceof Error ? error.message : ""));
+    } finally {
+      setLoadingDetalle(false);
     }
-    reset(defaults);
   };
 
   const orderedQuestions = useMemo(() => {
@@ -285,45 +412,24 @@ function DocenteAutoevaluacion() {
       .slice()
       .sort((a, b) => a.idFormulario - b.idFormulario);
     const formularioIds = new Set(formularios.map((formulario) => formulario.idFormulario));
-
     const steps = formularios
       .map((formulario) => ({
         formulario,
-        questions: orderedQuestions.filter(
-          (question) => question.idFormulario === formulario.idFormulario,
-        ),
+        questions: orderedQuestions.filter((question) => question.idFormulario === formulario.idFormulario),
       }))
       .filter((step) => step.questions.length > 0);
 
-    const preguntasSinFormulario = orderedQuestions.filter(
-      (question) => !formularioIds.has(question.idFormulario),
-    );
-
+    const preguntasSinFormulario = orderedQuestions.filter((question) => !formularioIds.has(question.idFormulario));
     if (preguntasSinFormulario.length > 0) {
       steps.push({
-        formulario: {
-          idFormulario: 0,
-          nombre: "Formulario complementario",
-          descripcion: "",
-          activo: true,
-        },
+        formulario: { idFormulario: 0, nombre: "Formulario complementario", descripcion: "", activo: true },
         questions: preguntasSinFormulario,
       });
     }
 
     return steps.length > 0
       ? steps
-      : [
-          {
-            formulario: {
-              idFormulario: 0,
-              nombre: "Formulario",
-              descripcion: "",
-              activo: true,
-            },
-            questions: orderedQuestions,
-          },
-        ];
+      : [{ formulario: { idFormulario: 0, nombre: "Formulario", descripcion: "", activo: true }, questions: orderedQuestions }];
   }, [detalle?.formularios, orderedQuestions]);
 
   const safeCurrentFormIndex = Math.min(currentFormIndex, Math.max(formSteps.length - 1, 0));
@@ -331,131 +437,114 @@ function DocenteAutoevaluacion() {
   const currentQuestions = currentStep?.questions ?? [];
   const isLastFormStep = safeCurrentFormIndex >= formSteps.length - 1;
 
-  const values = watch();
-
   const answeredCount = useMemo(() => {
-    return orderedQuestions.filter((question) => {
-      return String(values[question.idPregunta] ?? "").trim().length > 0;
-    }).length;
+    return orderedQuestions.filter((question) => String(values[question.idPregunta] ?? "").trim().length > 0).length;
   }, [orderedQuestions, values]);
 
-  const progressPercentage = orderedQuestions.length === 0
-    ? 0
-    : (answeredCount / orderedQuestions.length) * 100;
-
-  const firstMissingIndex = useMemo(() => {
-    return currentQuestions.findIndex((question) => {
-      return question.obligatoria && !String(values[question.idPregunta] ?? "").trim();
-    });
-  }, [currentQuestions, values]);
-
-  const currentQuestionNumber = currentQuestions.length === 0
-    ? 0
-    : firstMissingIndex >= 0
-      ? firstMissingIndex + 1
-      : currentQuestions.length;
-
+  const progressPercentage = orderedQuestions.length === 0 ? 0 : (answeredCount / orderedQuestions.length) * 100;
   const missingRequiredIds = useMemo(() => {
     return orderedQuestions
       .filter((question) => question.obligatoria && !String(values[question.idPregunta] ?? "").trim())
       .map((question) => question.idPregunta);
   }, [orderedQuestions, values]);
-
   const currentMissingRequiredIds = useMemo(() => {
     return currentQuestions
       .filter((question) => question.obligatoria && !String(values[question.idPregunta] ?? "").trim())
       .map((question) => question.idPregunta);
   }, [currentQuestions, values]);
+  const firstMissingIndex = currentQuestions.findIndex((question) => question.obligatoria && !String(values[question.idPregunta] ?? "").trim());
+  const currentQuestionNumber = currentQuestions.length === 0 ? 0 : firstMissingIndex >= 0 ? firstMissingIndex + 1 : currentQuestions.length;
+
+  const anios = useMemo(() => {
+    return Array.from(new Set(asignaciones.map((item) => getYear(resolveCampaign(campanias, item.idCampania)?.fechaInicio ?? item.createdAt)).filter(Boolean))).sort().reverse();
+  }, [asignaciones, campanias]);
+  const asignaturas = useMemo(() => {
+    return Array.from(new Set(asignaciones.map((item) => item.asignatura))).sort((a, b) => a.localeCompare(b, "es"));
+  }, [asignaciones]);
+  const stats = useMemo(() => {
+    const completadas = asignaciones.filter((item) => getEstadoEfectivo(item, campanias) === "completada").length;
+    const vencidas = asignaciones.filter((item) => getEstadoEfectivo(item, campanias) === "vencida").length;
+    const pendientes = asignaciones.filter((item) => getEstadoEfectivo(item, campanias) === "pendiente").length;
+    return { pendientes, completadas, vencidas, total: asignaciones.length };
+  }, [asignaciones, campanias]);
 
   const filteredAsignaciones = useMemo(() => {
     const query = search.trim().toLowerCase();
-
     return asignaciones
-      .filter((item) => filtroEstado === "todos" || item.estado.toLowerCase() === filtroEstado)
+      .filter((item) => filtroEstado === "todos" || getEstadoEfectivo(item, campanias) === filtroEstado)
+      .filter((item) => filtroAsignatura === "todos" || item.asignatura === filtroAsignatura)
+      .filter((item) => {
+        if (filtroAnio === "todos") return true;
+        const campania = resolveCampaign(campanias, item.idCampania);
+        return getYear(campania?.fechaInicio ?? item.createdAt) === filtroAnio;
+      })
       .filter((item) => {
         if (!query) return true;
-        const campania = resolveCampaignName(campanias, item.idCampania).toLowerCase();
-        return item.asignatura.toLowerCase().includes(query) || campania.includes(query);
+        return item.asignatura.toLowerCase().includes(query);
       });
-  }, [asignaciones, filtroEstado, search, campanias]);
+  }, [asignaciones, campanias, filtroAnio, filtroAsignatura, filtroEstado, search]);
+
+  const handleSignatureChange = async (dataUrl: string | null) => {
+    setSignatureDataUrl(dataUrl);
+    if (!dataUrl) {
+      setSignatureHash("");
+      return;
+    }
+    const base64 = dataUrlToBase64(dataUrl);
+    setSignatureHash(await sha256Hex(base64));
+  };
 
   const handleAutoSelect = (question: PreguntaEvaluacion, value: string) => {
-    setValue(question.idPregunta, value, {
-      shouldValidate: true,
-      shouldDirty: true,
-      shouldTouch: true,
-    });
-
-    if (submitAttempted) {
-      setSubmitAttempted(false);
-    }
+    setValue(question.idPregunta, value, { shouldValidate: true, shouldDirty: true, shouldTouch: true });
+    if (submitAttempted) setSubmitAttempted(false);
 
     const currentIndex = currentQuestions.findIndex((item) => item.idPregunta === question.idPregunta);
     const next = currentQuestions[currentIndex + 1];
     if (next?.idPregunta) {
-      questionRefs.current[next.idPregunta]?.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-      });
+      questionRefs.current[next.idPregunta]?.scrollIntoView({ behavior: "smooth", block: "center" });
     }
-  };
-
-  const toggleObservation = (questionId: string) => {
-    setObservacionOpen((prev) => ({ ...prev, [questionId]: !prev[questionId] }));
   };
 
   const handleNextForm = () => {
     setSubmitAttempted(true);
-
     if (currentMissingRequiredIds.length > 0) {
       setStatusMessage("Complete las preguntas obligatorias de este formulario para continuar.");
-      questionRefs.current[currentMissingRequiredIds[0]]?.scrollIntoView({
-        behavior: "smooth",
-        block: "center",
-      });
+      questionRefs.current[currentMissingRequiredIds[0]]?.scrollIntoView({ behavior: "smooth", block: "center" });
       return;
     }
-
     setStatusMessage("");
     setSubmitAttempted(false);
     setCurrentFormIndex((prev) => Math.min(prev + 1, formSteps.length - 1));
   };
 
-  const handlePreviousForm = () => {
-    setStatusMessage("");
-    setSubmitAttempted(false);
-    setCurrentFormIndex((prev) => Math.max(prev - 1, 0));
-  };
-
   const onSubmit = handleSubmit(async (formValues) => {
     if (!detalle) return;
-
     setSubmitAttempted(true);
 
     if (detalle.bloqueada) {
       setStatusMessage("Esta evaluacion ya fue enviada y solo puede visualizarse.");
       return;
     }
-
     if (missingRequiredIds.length > 0) {
       setStatusMessage("Hay preguntas obligatorias sin responder. Revise las marcadas en rojo.");
       return;
     }
-
     if (formValues.__declaracion !== true) {
       setStatusMessage("Debe aceptar la declaracion jurada antes de enviar.");
       return;
     }
-
     if (!signatureDataUrl) {
       setStatusMessage("Debe firmar digitalmente antes de enviar.");
       return;
     }
 
+    const firmaBase64 = dataUrlToBase64(signatureDataUrl);
+    const finalSignatureHash = signatureHash || await sha256Hex(firmaBase64);
+    if (!signatureHash) setSignatureHash(finalSignatureHash);
+
     const respuestas = orderedQuestions.map((question) => {
       const base = String(formValues[question.idPregunta] ?? "").trim();
       const observacion = observaciones[question.idPregunta]?.trim();
-
       return {
         idAsignacion: detalle.asignacion.idAsignacion,
         idPregunta: question.idPregunta,
@@ -468,47 +557,47 @@ function DocenteAutoevaluacion() {
 
     try {
       await responderAutoevaluacion(detalle.asignacion.idAsignacion, respuestas);
-      await enviarAutoevaluacion(detalle.asignacion.idAsignacion);
+      await enviarAutoevaluacion(detalle.asignacion.idAsignacion, {
+        firmaHash: finalSignatureHash,
+        firmaBase64,
+      });
 
-      const campaignName = resolveCampaignName(campanias, detalle.asignacion.idCampania);
+      const nextDetalle = await getAutoevaluacionDetalle(detalle.asignacion.idAsignacion);
+      setDetalle(nextDetalle);
       await loadData();
-      await openAsignacion(detalle.asignacion.idAsignacion);
-
       setConfirmation({
         idAsignacion: detalle.asignacion.idAsignacion,
         asignatura: detalle.asignacion.asignatura,
-        campania: campaignName,
+        campania: resolveCampaignName(campanias, detalle.asignacion.idCampania),
         fecha: new Date().toLocaleString("es-AR"),
       });
       setStatusMessage("Su evaluacion fue enviada correctamente.");
     } catch (error) {
-      const raw = error instanceof Error ? error.message : "";
-      setStatusMessage(getHumanErrorMessage(raw));
+      setStatusMessage(getHumanErrorMessage(error instanceof Error ? error.message : ""));
     } finally {
       setIsSubmitting(false);
     }
   });
 
-  const canSubmit = useMemo(() => {
-    if (!detalle) return false;
-    return !detalle.bloqueada && !isSubmitting;
-  }, [detalle, isSubmitting]);
+  const canSubmit = Boolean(detalle && !detalle.bloqueada && !isSubmitting);
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="space-y-4">
-        <NavLink
-          to="/"
-          className="inline-flex items-center text-sm font-medium text-blue-700 hover:text-blue-900"
-        >
-          <ArrowLeft className="w-4 h-4 mr-1" />
-          Volver al inicio
+        <NavLink to="/" className="inline-flex items-center text-sm font-medium text-blue-700 hover:text-blue-900">
+          <ArrowLeft className="w-4 h-4 mr-1" /> Volver al inicio
         </NavLink>
-
         <ModuloHero
           title="Autoevaluacion docente"
-          description="Complete sus autoevaluaciones por asignatura con un flujo guiado, claro y seguro."
+          description="Dashboard institucional para completar, consultar y exportar autoevaluaciones por asignatura."
         />
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <StatCard title="Pendientes" value={stats.pendientes} tone="warning" />
+        <StatCard title="Completadas" value={stats.completadas} tone="success" />
+        <StatCard title="Vencidas" value={stats.vencidas} tone="danger" />
+        <StatCard title="Total" value={stats.total} />
       </div>
 
       <Card className="border-slate-200 shadow-sm">
@@ -516,11 +605,8 @@ function DocenteAutoevaluacion() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <CardTitle className="text-lg">Mis autoevaluaciones</CardTitle>
-              <CardDescription>
-                Filtre por estado y abra cada evaluacion en formato de tarjetas.
-              </CardDescription>
+              <CardDescription>Filtre por año, estado, asignatura y busque por nombre de asignatura.</CardDescription>
             </div>
-
             {!docenteId && (
               <Badge className="bg-rose-50 text-rose-700 border-rose-200">
                 No se pudo resolver id_docente para el DNI actual
@@ -528,95 +614,79 @@ function DocenteAutoevaluacion() {
             )}
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_auto_auto] gap-3">
             <label className="relative">
+              <span className="sr-only">Buscar asignatura</span>
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <Input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Buscar por asignatura o campana"
-                className="pl-9"
-              />
+              <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar asignatura" className="pl-9" />
             </label>
-
-            <div className="flex flex-wrap gap-2 items-center">
-              <Filter className="w-4 h-4 text-slate-500" />
-              {(["todos", "pendiente", "completada", "vencida"] as EstadoFiltro[]).map((estado) => (
-                <button
-                  key={estado}
-                  type="button"
-                  onClick={() => setFiltroEstado(estado)}
-                  className={`px-3 py-1.5 text-xs rounded-full border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 ${
-                    filtroEstado === estado
-                      ? "bg-slate-900 text-white border-slate-900"
-                      : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
-                  }`}
-                >
-                  {estado === "todos" ? "Todos" : estado}
-                </button>
-              ))}
-            </div>
+            <label className="text-sm text-slate-600">
+              <span className="sr-only">Filtrar por año</span>
+              <select value={filtroAnio} onChange={(event) => setFiltroAnio(event.target.value)} className="h-10 w-full rounded-md border border-slate-200 px-3 bg-white">
+                <option value="todos">Todos los años</option>
+                {anios.map((anio) => <option key={anio} value={anio}>{anio}</option>)}
+              </select>
+            </label>
+            <label className="text-sm text-slate-600">
+              <span className="sr-only">Filtrar por estado</span>
+              <select value={filtroEstado} onChange={(event) => setFiltroEstado(event.target.value as EstadoFiltro)} className="h-10 w-full rounded-md border border-slate-200 px-3 bg-white">
+                {ESTADO_OPTIONS.map((estado) => <option key={estado} value={estado}>{estado === "todos" ? "Todos los estados" : estado}</option>)}
+              </select>
+            </label>
+            <label className="text-sm text-slate-600">
+              <span className="sr-only">Filtrar por asignatura</span>
+              <select value={filtroAsignatura} onChange={(event) => setFiltroAsignatura(event.target.value)} className="h-10 w-full rounded-md border border-slate-200 px-3 bg-white">
+                <option value="todos">Todas las asignaturas</option>
+                {asignaturas.map((asignatura) => <option key={asignatura} value={asignatura}>{asignatura}</option>)}
+              </select>
+            </label>
           </div>
         </CardHeader>
-
-        <CardContent>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {filteredAsignaciones.map((item) => (
-              <motion.article
-                key={item.idAsignacion}
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.2 }}
-                className="rounded-2xl border border-slate-200 p-4 sm:p-5 bg-white shadow-sm hover:shadow-md transition-all duration-200"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h4 className="text-base font-semibold text-slate-900">{item.asignatura}</h4>
-                    <p className="text-xs text-slate-500 mt-1">
-                      {resolveCampaignName(campanias, item.idCampania)}
-                    </p>
-                    <p className="text-xs text-slate-500 mt-1">
-                      Fecha de asignacion: {formatDate(item.createdAt)}
-                    </p>
-                  </div>
-                  <EstadoBadge estado={item.estado} />
-                </div>
-
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <Button
-                    type="button"
-                    onClick={() => void openAsignacion(item.idAsignacion)}
-                    className="rounded-xl"
+        <CardContent className="space-y-4">
+          {!detalle && <StatusMessage message={statusMessage} />}
+          {loadingList ? <LoadingBlock /> : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {filteredAsignaciones.map((item) => {
+                const estado = getEstadoEfectivo(item, campanias);
+                return (
+                  <motion.article
+                    key={item.idAsignacion}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.2 }}
+                    className="rounded-2xl border border-slate-200 p-4 sm:p-5 bg-white shadow-sm hover:shadow-md transition-all duration-200 min-w-0"
                   >
-                    {item.estado.toLowerCase() === "completada"
-                      ? "Visualizar respuestas"
-                      : "Iniciar evaluacion"}
-                    <ChevronRight className="w-4 h-4" />
-                  </Button>
-
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => void exportarAsignacionExcel(item.idAsignacion)}
-                    className="rounded-xl"
-                  >
-                    <Download className="w-4 h-4" />
-                    Descargar
-                  </Button>
-                </div>
-              </motion.article>
-            ))}
-          </div>
-
-          {filteredAsignaciones.length === 0 && (
-            <div className="text-center text-slate-500 py-10">
-              No encontramos autoevaluaciones para los filtros seleccionados.
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h4 className="text-base font-semibold text-slate-900 break-words">{item.asignatura}</h4>
+                        <p className="text-xs text-slate-500 mt-1">{resolveCampaignName(campanias, item.idCampania)}</p>
+                        <p className="text-xs text-slate-500 mt-1">
+                          Respuesta: {formatDate(item.fechaRespuesta ?? item.completedAt)}
+                        </p>
+                      </div>
+                      <EstadoBadge estado={estado} />
+                    </div>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <Button type="button" onClick={() => void openAsignacion(item.idAsignacion)} className="rounded-xl">
+                        {estado === "completada" ? <Eye className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                        {estado === "completada" ? "Ver respuestas enviadas" : "Completar"}
+                      </Button>
+                      <Button type="button" variant="outline" onClick={() => void exportarAsignacionExcel(item.idAsignacion)} className="rounded-xl">
+                        <Download className="w-4 h-4" /> Descargar
+                      </Button>
+                    </div>
+                  </motion.article>
+                );
+              })}
             </div>
           )}
+          {!loadingList && filteredAsignaciones.length === 0 && <EmptyState>No hay autoevaluaciones para los filtros seleccionados.</EmptyState>}
         </CardContent>
       </Card>
 
-      {detalle && !confirmation && (
+      {loadingDetalle && <LoadingBlock label="Cargando formulario..." />}
+
+      {detalle && !confirmation && !loadingDetalle && (
         <div className="space-y-5 animate-in fade-in slide-in-from-bottom-2 duration-300">
           <ProgressPanel
             title={`Formulario ${safeCurrentFormIndex + 1} de ${formSteps.length}`}
@@ -630,9 +700,7 @@ function DocenteAutoevaluacion() {
               <div className="flex flex-wrap gap-2 items-center justify-between">
                 <div>
                   <CardTitle className="text-xl">{detalle.asignacion.asignatura}</CardTitle>
-                  <CardDescription>
-                    Campana: {resolveCampaignName(campanias, detalle.asignacion.idCampania)}
-                  </CardDescription>
+                  <CardDescription>Campana: {resolveCampaignName(campanias, detalle.asignacion.idCampania)}</CardDescription>
                 </div>
                 <EstadoBadge estado={detalle.asignacion.estado} />
               </div>
@@ -640,7 +708,7 @@ function DocenteAutoevaluacion() {
 
             <CardContent className="space-y-6">
               {submitAttempted && (isLastFormStep ? missingRequiredIds : currentMissingRequiredIds).length > 0 && (
-                <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-800 text-sm">
+                <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-rose-800 text-sm" aria-live="polite">
                   Faltan {(isLastFormStep ? missingRequiredIds : currentMissingRequiredIds).length} preguntas obligatorias por completar.
                 </div>
               )}
@@ -648,16 +716,10 @@ function DocenteAutoevaluacion() {
               <form onSubmit={onSubmit} className="space-y-8" noValidate>
                 <section className="space-y-4">
                   <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-4 py-3">
-                    <p className="text-xs uppercase text-slate-500">
-                      Formulario {safeCurrentFormIndex + 1}
-                    </p>
-                    <h4 className="text-sm sm:text-base font-semibold text-slate-900">
-                      {currentStep?.formulario.nombre ?? "Formulario"}
-                    </h4>
+                    <p className="text-xs uppercase text-slate-500">Formulario {safeCurrentFormIndex + 1}</p>
+                    <h4 className="text-sm sm:text-base font-semibold text-slate-900">{currentStep?.formulario.nombre ?? "Formulario"}</h4>
                     {currentStep?.formulario.descripcion && (
-                      <p className="text-xs sm:text-sm text-slate-600 mt-1">
-                        {currentStep.formulario.descripcion}
-                      </p>
+                      <p className="text-xs sm:text-sm text-slate-600 mt-1">{currentStep.formulario.descripcion}</p>
                     )}
                   </div>
 
@@ -665,9 +727,8 @@ function DocenteAutoevaluacion() {
                     {currentQuestions.map((question, questionIndex) => {
                       const selected = String(values[question.idPregunta] ?? "");
                       const textQuestion = isTextQuestion(question);
-                      const hasError = submitAttempted
-                        && question.obligatoria
-                        && !selected.trim();
+                      const hasError = submitAttempted && question.obligatoria && !selected.trim();
+                      const describedBy = hasError ? `${question.idPregunta}-error` : undefined;
 
                       return (
                         <motion.article
@@ -678,50 +739,35 @@ function DocenteAutoevaluacion() {
                           viewport={{ once: true, margin: "-60px" }}
                           transition={{ duration: 0.18 }}
                           className={`rounded-2xl border p-4 sm:p-5 transition-all duration-200 ${
-                            hasError
-                              ? "border-rose-300 bg-rose-50/40"
-                              : "border-slate-200 bg-white hover:shadow-sm"
+                            hasError ? "border-rose-300 bg-rose-50/40" : "border-slate-200 bg-white hover:shadow-sm"
                           }`}
                         >
-                          {!textQuestion && (
-                            <input
-                              type="hidden"
-                              {...register(question.idPregunta, {
-                                required: question.obligatoria,
-                              })}
-                            />
-                          )}
-
+                          {!textQuestion && <input type="hidden" {...register(question.idPregunta, { required: question.obligatoria })} />}
                           <div className="flex items-start justify-between gap-3 mb-4">
-                            <p className="text-sm sm:text-base font-medium text-slate-900 leading-relaxed">
+                            <label htmlFor={textQuestion ? question.idPregunta : undefined} className="text-sm sm:text-base font-medium text-slate-900 leading-relaxed">
                               {questionIndex + 1}. {question.pregunta}
-                            </p>
-                            {question.obligatoria && (
-                              <Badge className="bg-slate-100 text-slate-700 border-slate-200">
-                                Obligatoria
-                              </Badge>
-                            )}
+                            </label>
+                            {question.obligatoria && <Badge className="bg-slate-100 text-slate-700 border-slate-200">Obligatoria</Badge>}
                           </div>
 
                           {textQuestion ? (
                             <Textarea
+                              id={question.idPregunta}
                               rows={4}
                               disabled={detalle.bloqueada}
+                              aria-invalid={hasError}
+                              aria-describedby={describedBy}
                               placeholder="Escriba su respuesta"
-                              {...register(question.idPregunta, {
-                                required: question.obligatoria,
-                              })}
+                              {...register(question.idPregunta, { required: question.obligatoria })}
                             />
                           ) : (
-                            <div
-                              role="radiogroup"
-                              aria-label={`Opciones para pregunta ${questionIndex + 1}`}
-                              className="grid grid-cols-1 sm:grid-cols-3 gap-2"
-                            >
+                            <div role="radiogroup" aria-label={`Opciones para pregunta ${questionIndex + 1}`} className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                               {ANSWER_OPTIONS.map((option) => (
                                 <button
                                   key={`${question.idPregunta}-${option.value}`}
                                   type="button"
+                                  role="radio"
+                                  aria-checked={selected === option.value}
                                   disabled={detalle.bloqueada}
                                   data-active={selected === option.value}
                                   onClick={() => handleAutoSelect(question, option.value)}
@@ -736,29 +782,17 @@ function DocenteAutoevaluacion() {
                           <div className="mt-4">
                             <button
                               type="button"
-                              onClick={() => toggleObservation(question.idPregunta)}
+                              onClick={() => setObservacionOpen((prev) => ({ ...prev, [question.idPregunta]: !prev[question.idPregunta] }))}
                               className="text-xs font-medium text-blue-700 hover:text-blue-900"
                             >
-                              {observacionOpen[question.idPregunta]
-                                ? "- Ocultar observacion"
-                                : "+ Agregar observacion"}
+                              {observacionOpen[question.idPregunta] ? "- Ocultar observacion" : "+ Agregar observacion"}
                             </button>
-
                             <AnimatePresence initial={false}>
                               {observacionOpen[question.idPregunta] && (
-                                <motion.div
-                                  initial={{ opacity: 0, height: 0 }}
-                                  animate={{ opacity: 1, height: "auto" }}
-                                  exit={{ opacity: 0, height: 0 }}
-                                  transition={{ duration: 0.2 }}
-                                  className="mt-2"
-                                >
+                                <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }} transition={{ duration: 0.2 }} className="mt-2">
                                   <Textarea
                                     value={observaciones[question.idPregunta] ?? ""}
-                                    onChange={(event) => setObservaciones((prev) => ({
-                                      ...prev,
-                                      [question.idPregunta]: event.target.value,
-                                    }))}
+                                    onChange={(event) => setObservaciones((prev) => ({ ...prev, [question.idPregunta]: event.target.value }))}
                                     placeholder="Observacion opcional"
                                     rows={2}
                                     disabled={detalle.bloqueada}
@@ -767,12 +801,7 @@ function DocenteAutoevaluacion() {
                               )}
                             </AnimatePresence>
                           </div>
-
-                          {hasError && (
-                            <p className="mt-2 text-xs text-rose-700">
-                              Complete esta pregunta para continuar.
-                            </p>
-                          )}
+                          {hasError && <p id={describedBy} className="mt-2 text-xs text-rose-700">Complete esta pregunta para continuar.</p>}
                         </motion.article>
                       );
                     })}
@@ -781,85 +810,50 @@ function DocenteAutoevaluacion() {
 
                 {isLastFormStep && (
                   <section className="rounded-2xl border border-slate-200 bg-slate-50/50 p-5 space-y-4">
-                  <div>
-                    <h4 className="font-semibold text-slate-900">
-                      Firma digital institucional
-                    </h4>
-                    <p className="text-sm text-slate-600 mt-1">
-                      Declaro que la informacion brindada es veridica.
-                    </p>
-                  </div>
-
-                  <SignaturePad
-                    disabled={detalle.bloqueada}
-                    onChange={setSignatureDataUrl}
-                  />
-
-                  <AnimatePresence>
+                    <div>
+                      <h4 className="font-semibold text-slate-900">Firma digital institucional</h4>
+                      <p className="text-sm text-slate-600 mt-1">Declaro que la informacion brindada es veridica.</p>
+                    </div>
+                    <SignaturePad disabled={detalle.bloqueada} signed={Boolean(signatureDataUrl)} onChange={(value) => void handleSignatureChange(value)} />
                     {signatureDataUrl && (
-                      <motion.p
-                        initial={{ opacity: 0, y: -4 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -4 }}
-                        className="text-sm text-emerald-700 font-medium"
-                      >
-                        ✓ Documento firmado correctamente
-                      </motion.p>
+                      <div className="rounded-xl border border-emerald-200 bg-white p-3 space-y-2">
+                        <p className="text-sm text-emerald-700 font-medium">✓ Documento firmado</p>
+                        <img src={signatureDataUrl} alt="Vista previa de firma digital" className="h-28 max-w-full rounded-lg border border-slate-200 bg-white object-contain" />
+                        <p className="text-xs text-slate-500 break-all">Hash: {signatureHash || "Generando..."}</p>
+                      </div>
                     )}
-                  </AnimatePresence>
-
-                  <label className="flex items-start gap-2 text-sm text-slate-700">
-                    <input
-                      type="checkbox"
-                      disabled={detalle.bloqueada}
-                      {...register("__declaracion", { required: true })}
-                    />
-                    Declaro que la informacion registrada en esta autoevaluacion es veraz.
-                  </label>
+                    <label className="flex items-start gap-2 text-sm text-slate-700">
+                      <input type="checkbox" disabled={detalle.bloqueada} {...register("__declaracion", { required: true })} />
+                      Declaro que la informacion registrada en esta autoevaluacion es veraz.
+                    </label>
                   </section>
                 )}
 
-                {statusMessage && (
-                  <p
-                    className={`text-sm rounded-lg px-3 py-2 border ${
-                      statusMessage.toLowerCase().includes("correctamente")
-                        ? "text-emerald-700 border-emerald-200 bg-emerald-50"
-                        : "text-rose-700 border-rose-200 bg-rose-50"
-                    }`}
-                  >
-                    {statusMessage}
-                  </p>
-                )}
+                <StatusMessage message={statusMessage} />
 
                 <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-3">
                   <Button
                     type="button"
                     variant="outline"
                     disabled={safeCurrentFormIndex === 0}
-                    onClick={handlePreviousForm}
+                    onClick={() => {
+                      setStatusMessage("");
+                      setSubmitAttempted(false);
+                      setCurrentFormIndex((prev) => Math.max(prev - 1, 0));
+                    }}
                     className="rounded-xl"
                   >
                     Volver al formulario anterior
                   </Button>
 
                   {isLastFormStep ? (
-                    <Button
-                      type="submit"
-                      disabled={!canSubmit || formState.isSubmitting}
-                      className="rounded-xl"
-                    >
-                      <Send className="w-4 h-4" />
+                    <Button type="submit" disabled={!canSubmit || formState.isSubmitting} className="rounded-xl">
+                      {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                       Enviar evaluacion
                     </Button>
                   ) : (
-                    <Button
-                      type="button"
-                      disabled={detalle.bloqueada}
-                      onClick={handleNextForm}
-                      className="rounded-xl"
-                    >
-                      Siguiente formulario
-                      <ChevronRight className="w-4 h-4" />
+                    <Button type="button" disabled={detalle.bloqueada} onClick={handleNextForm} className="rounded-xl">
+                      Siguiente formulario <ChevronRight className="w-4 h-4" />
                     </Button>
                   )}
                 </div>
@@ -882,69 +876,90 @@ function DocenteAutoevaluacion() {
 
 function JefeAutoevaluacion() {
   const { user } = useUser();
-
   const [campanias, setCampanias] = useState<CampaniaEvaluacion[]>([]);
   const [dashboard, setDashboard] = useState<DashboardJefeCarrera | null>(null);
   const [loading, setLoading] = useState(true);
   const [newCampaignName, setNewCampaignName] = useState("");
-  const [newCampaignType, setNewCampaignType] = useState<
-    "1er_semestre" | "2do_semestre" | "anual"
-  >("1er_semestre");
+  const [newCampaignType, setNewCampaignType] = useState<"1er_semestre" | "2do_semestre" | "anual">("1er_semestre");
   const [selectedCampaniaId, setSelectedCampaniaId] = useState<string>("");
   const [exportRowsCount, setExportRowsCount] = useState<number>(0);
   const [statusMessage, setStatusMessage] = useState<string>("");
+  const [filtroCarrera, setFiltroCarrera] = useState("todos");
+  const [filtroEstado, setFiltroEstado] = useState<EstadoFiltro>("todos");
+  const [filtroAsignatura, setFiltroAsignatura] = useState("todos");
+  const [search, setSearch] = useState("");
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     setLoading(true);
     try {
-      const [nextCampanias, nextDashboard] = await Promise.all([
-        getCampanias(),
-        getDashboardJefeCarrera(),
-      ]);
-
+      const [nextCampanias, nextDashboard] = await Promise.all([getCampanias(), getDashboardJefeCarrera()]);
       setCampanias(nextCampanias);
       setDashboard(nextDashboard);
       setSelectedCampaniaId((prev) => prev || nextCampanias[0]?.idCampania || "");
+    } catch (error) {
+      setStatusMessage(getHumanErrorMessage(error instanceof Error ? error.message : ""));
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    void refresh();
   }, []);
 
   useEffect(() => {
-    if (!selectedCampaniaId) return;
-    void getCampaniaExportRows(selectedCampaniaId).then((rows) => {
-      setExportRowsCount(rows.length);
-    });
+    void refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    let active = true;
+    if (!selectedCampaniaId) return undefined;
+    void getCampaniaExportRows(selectedCampaniaId)
+      .then((rows) => {
+        if (active) setExportRowsCount(rows.length);
+      })
+      .catch((error) => {
+        if (active) setStatusMessage(getHumanErrorMessage(error instanceof Error ? error.message : ""));
+      });
+    return () => {
+      active = false;
+    };
   }, [selectedCampaniaId]);
+
+  const detalle = dashboard?.detalle ?? [];
+  const carreras = useMemo(() => Array.from(new Set(detalle.map((item) => item.carrera))).sort(), [detalle]);
+  const asignaturas = useMemo(() => Array.from(new Set(detalle.map((item) => item.asignatura))).sort(), [detalle]);
+  const filteredDetalle = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return detalle
+      .filter((item) => filtroCarrera === "todos" || item.carrera === filtroCarrera)
+      .filter((item) => filtroEstado === "todos" || item.estado.toLowerCase() === filtroEstado)
+      .filter((item) => filtroAsignatura === "todos" || item.asignatura === filtroAsignatura)
+      .filter((item) => !query || item.docente.toLowerCase().includes(query) || item.asignatura.toLowerCase().includes(query));
+  }, [detalle, filtroAsignatura, filtroCarrera, filtroEstado, search]);
+
+  const chartData = [
+    { name: "Completadas", value: dashboard?.completadas ?? 0 },
+    { name: "Pendientes", value: dashboard?.pendientes ?? 0 },
+    { name: "Vencidas", value: dashboard?.vencidas ?? 0 },
+  ];
 
   const handleCreateCampania = async () => {
     if (!newCampaignName.trim()) return;
-
     const today = new Date();
     const start = today.toISOString().slice(0, 10);
     const endDate = new Date(today);
     endDate.setMonth(endDate.getMonth() + 4);
-    const end = endDate.toISOString().slice(0, 10);
 
     try {
       await crearCampania({
         nombre: newCampaignName.trim(),
         fechaInicio: start,
-        fechaFin: end,
+        fechaFin: endDate.toISOString().slice(0, 10),
         descripcion: `tipo:${newCampaignType}`,
         idCarrera: null,
       });
-
       setStatusMessage("Campana creada correctamente.");
       setNewCampaignName("");
       await refresh();
     } catch (error) {
-      const raw = error instanceof Error ? error.message : "";
-      setStatusMessage(getHumanErrorMessage(raw));
+      setStatusMessage(getHumanErrorMessage(error instanceof Error ? error.message : ""));
     }
   };
 
@@ -954,22 +969,17 @@ function JefeAutoevaluacion() {
       setStatusMessage("Campana lanzada correctamente.");
       await refresh();
     } catch (error) {
-      const raw = error instanceof Error ? error.message : "";
-      setStatusMessage(getHumanErrorMessage(raw));
+      setStatusMessage(getHumanErrorMessage(error instanceof Error ? error.message : ""));
     }
   };
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      <ModuloHero
-        title="Panel Jefe de Carrera"
-        description="Configure campanas, controle avances y exporte resultados por carrera."
-      />
-
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
-        <StatCard title="Total docentes" value={dashboard?.totalDocentes ?? 0} />
-        <StatCard title="Pendientes" value={dashboard?.pendientes ?? 0} tone="warning" />
+      <ModuloHero title="Panel Jefe de Carrera" description="Control de avance, filtros institucionales y exportacion de resultados." />
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
+        <StatCard title="Total asignaciones" value={dashboard?.totalAsignaciones ?? 0} />
         <StatCard title="Completadas" value={dashboard?.completadas ?? 0} tone="success" />
+        <StatCard title="Pendientes" value={dashboard?.pendientes ?? 0} tone="warning" />
         <StatCard title="Vencidas" value={dashboard?.vencidas ?? 0} tone="danger" />
         <StatCard title="% completado" value={`${dashboard?.porcentajeCompletado ?? 0}%`} />
       </div>
@@ -977,131 +987,121 @@ function JefeAutoevaluacion() {
       <Card className="border-slate-200 shadow-sm">
         <CardHeader>
           <CardTitle>Campanas de autoevaluacion</CardTitle>
-          <CardDescription>Genere una campana y luego actívela para iniciar asignaciones.</CardDescription>
+          <CardDescription>Genere una campana y activela para iniciar asignaciones.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-3">
-            <Input
-              value={newCampaignName}
-              onChange={(event) => setNewCampaignName(event.target.value)}
-              placeholder="Nombre de campana"
-            />
-            <select
-              value={newCampaignType}
-              onChange={(event) => {
-                setNewCampaignType(event.target.value as "1er_semestre" | "2do_semestre" | "anual");
-              }}
-              className="h-10 rounded-md border border-slate-200 px-3 text-sm bg-white"
-            >
-              <option value="1er_semestre">1er_semestre</option>
-              <option value="2do_semestre">2do_semestre</option>
-              <option value="anual">anual</option>
+            <Input value={newCampaignName} onChange={(event) => setNewCampaignName(event.target.value)} placeholder="Nombre de campana" />
+            <select value={newCampaignType} onChange={(event) => setNewCampaignType(event.target.value as "1er_semestre" | "2do_semestre" | "anual")} className="h-10 rounded-md border border-slate-200 px-3 text-sm bg-white">
+              <option value="1er_semestre">1er semestre</option>
+              <option value="2do_semestre">2do semestre</option>
+              <option value="anual">Anual</option>
             </select>
-            <Button type="button" onClick={() => void handleCreateCampania()}>
-              Crear campana
-            </Button>
+            <Button type="button" onClick={() => void handleCreateCampania()}>Crear campana</Button>
           </div>
-
-          {statusMessage && (
-            <p
-              className={`text-sm rounded-lg px-3 py-2 border ${
-                statusMessage.toLowerCase().includes("correctamente")
-                  ? "text-emerald-700 border-emerald-200 bg-emerald-50"
-                  : "text-rose-700 border-rose-200 bg-rose-50"
-              }`}
-            >
-              {statusMessage}
-            </p>
-          )}
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-            {campanias.map((item) => (
-              <article key={item.idCampania} className="rounded-2xl border border-slate-200 p-4 bg-white">
-                <div className="flex justify-between gap-2 items-start">
-                  <div>
-                    <h4 className="font-semibold text-slate-900">{item.nombre}</h4>
-                    <p className="text-xs text-slate-500 mt-1">Tipo: {parseTipoFromDescripcion(item.descripcion)}</p>
-                    <p className="text-xs text-slate-500">Inicio: {formatDate(item.fechaInicio)} · Fin: {formatDate(item.fechaFin)}</p>
+          <StatusMessage message={statusMessage} />
+          {loading ? <LoadingBlock /> : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              {campanias.map((item) => (
+                <article key={item.idCampania} className="rounded-2xl border border-slate-200 p-4 bg-white min-w-0">
+                  <div className="flex justify-between gap-2 items-start">
+                    <div className="min-w-0">
+                      <h4 className="font-semibold text-slate-900 break-words">{item.nombre}</h4>
+                      <p className="text-xs text-slate-500 mt-1">Tipo: {parseTipoFromDescripcion(item.descripcion)}</p>
+                      <p className="text-xs text-slate-500">Inicio: {formatDate(item.fechaInicio)} · Fin: {formatDate(item.fechaFin)}</p>
+                    </div>
+                    <EstadoBadge estado={item.estado} />
                   </div>
-                  <EstadoBadge estado={item.estado} />
-                </div>
-
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {item.estado.toLowerCase() === "borrador" && (
-                    <Button type="button" variant="outline" onClick={() => void handleLaunch(item.idCampania)}>
-                      Lanzar
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {item.estado.toLowerCase() === "borrador" && <Button type="button" variant="outline" onClick={() => void handleLaunch(item.idCampania)}>Lanzar</Button>}
+                    <Button type="button" variant="outline" onClick={() => { setSelectedCampaniaId(item.idCampania); void exportarCampaniaExcel(item.idCampania); }}>
+                      <Download className="w-4 h-4" /> Exportar
                     </Button>
-                  )}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      setSelectedCampaniaId(item.idCampania);
-                      void exportarCampaniaExcel(item.idCampania);
-                    }}
-                  >
-                    <Download className="w-4 h-4" /> Exportar
-                  </Button>
-                </div>
-              </article>
-            ))}
-            {!loading && campanias.length === 0 && (
-              <div className="text-sm text-slate-500">No hay campanas registradas.</div>
-            )}
-          </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
         </CardContent>
       </Card>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <Card className="border-slate-200 shadow-sm">
+          <CardHeader><CardTitle>Completadas vs pendientes</CardTitle></CardHeader>
+          <CardContent><MetricChart data={chartData} /></CardContent>
+        </Card>
+        <Card className="border-slate-200 shadow-sm">
+          <CardHeader><CardTitle>Evolucion por asignatura</CardTitle></CardHeader>
+          <CardContent className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={dashboard?.porAsignatura ?? []}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="asignatura" tick={{ fontSize: 11 }} />
+                <YAxis allowDecimals={false} />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="completadas" fill="#10b981" />
+                <Bar dataKey="pendientes" fill="#f59e0b" />
+                <Bar dataKey="vencidas" fill="#ef4444" />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      </div>
 
       <Card className="border-slate-200 shadow-sm">
         <CardHeader className="gap-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <CardTitle>Seguimiento de docentes</CardTitle>
-              <CardDescription>Revise estado de respuesta por asignatura.</CardDescription>
+              <CardDescription>Tabla institucional con filtros por carrera, estado y asignatura.</CardDescription>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <select
-                value={selectedCampaniaId}
-                onChange={(event) => setSelectedCampaniaId(event.target.value)}
-                className="h-10 rounded-md border border-slate-200 px-3 text-sm bg-white"
-              >
-                {campanias.map((item) => (
-                  <option key={item.idCampania} value={item.idCampania}>
-                    {item.nombre}
-                  </option>
-                ))}
-              </select>
-
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => {
-                  if (!selectedCampaniaId) return;
-                  void exportarCampaniaPorCarreraExcel(selectedCampaniaId, user.carrera);
-                }}
-              >
-                <FileSpreadsheet className="w-4 h-4" /> Exportar por carrera
-              </Button>
-            </div>
+            <Button type="button" variant="outline" onClick={() => { if (selectedCampaniaId) void exportarCampaniaPorCarreraExcel(selectedCampaniaId, user.carrera); }}>
+              <FileSpreadsheet className="w-4 h-4" /> Exportar Excel
+            </Button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+            <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar docente o asignatura" />
+            <select value={filtroCarrera} onChange={(event) => setFiltroCarrera(event.target.value)} className="h-10 rounded-md border border-slate-200 px-3 text-sm bg-white">
+              <option value="todos">Todas las carreras</option>
+              {carreras.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+            <select value={filtroEstado} onChange={(event) => setFiltroEstado(event.target.value as EstadoFiltro)} className="h-10 rounded-md border border-slate-200 px-3 text-sm bg-white">
+              {ESTADO_OPTIONS.map((estado) => <option key={estado} value={estado}>{estado === "todos" ? "Todos los estados" : estado}</option>)}
+            </select>
+            <select value={filtroAsignatura} onChange={(event) => setFiltroAsignatura(event.target.value)} className="h-10 rounded-md border border-slate-200 px-3 text-sm bg-white">
+              <option value="todos">Todas las asignaturas</option>
+              {asignaturas.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
           </div>
           <p className="text-xs text-slate-500">Registros disponibles para exportar: {exportRowsCount}</p>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-            {(dashboard?.detalle ?? []).map((item) => (
-              <article key={item.idAsignacion} className="rounded-2xl border border-slate-200 bg-white p-4">
-                <p className="font-semibold text-slate-900">{item.docente}</p>
-                <p className="text-sm text-slate-600 mt-1">{item.asignatura}</p>
-                <div className="mt-2 flex items-center justify-between">
-                  <EstadoBadge estado={item.estado} />
-                  <span className="text-xs text-slate-500">{formatDate(item.fechaEnvio)}</span>
-                </div>
-              </article>
-            ))}
-            {!loading && (dashboard?.detalle ?? []).length === 0 && (
-              <div className="text-sm text-slate-500">Sin resultados para la campana activa.</div>
-            )}
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[720px] text-sm">
+              <thead className="text-left text-slate-500 border-b border-slate-200">
+                <tr>
+                  <th className="py-2 pr-3">Docente</th>
+                  <th className="py-2 pr-3">Asignatura</th>
+                  <th className="py-2 pr-3">Carrera</th>
+                  <th className="py-2 pr-3">Estado</th>
+                  <th className="py-2 pr-3">Fecha respuesta</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredDetalle.map((item) => (
+                  <tr key={item.idAsignacion} className="border-b border-slate-100">
+                    <td className="py-3 pr-3 font-medium text-slate-900">{item.docente}</td>
+                    <td className="py-3 pr-3">{item.asignatura}</td>
+                    <td className="py-3 pr-3">{item.carrera}</td>
+                    <td className="py-3 pr-3"><EstadoBadge estado={item.estado} /></td>
+                    <td className="py-3 pr-3">{formatDate(item.fechaRespuesta ?? item.fechaEnvio)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
+          {!loading && filteredDetalle.length === 0 && <EmptyState>No hay resultados para los filtros seleccionados.</EmptyState>}
         </CardContent>
       </Card>
     </div>
@@ -1110,21 +1110,37 @@ function JefeAutoevaluacion() {
 
 function SecretariaAutoevaluacion() {
   const { user } = useUser();
-
   const [dashboard, setDashboard] = useState<DashboardSecretaria | null>(null);
   const [selectedCampaniaId, setSelectedCampaniaId] = useState("");
   const [advertencia, setAdvertencia] = useState("");
   const [statusMessage, setStatusMessage] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [filtroEstado, setFiltroEstado] = useState<EstadoFiltro>("todos");
+  const [search, setSearch] = useState("");
 
-  const refresh = async () => {
-    const next = await getDashboardSecretaria();
-    setDashboard(next);
-    setSelectedCampaniaId((prev) => prev || next.campanias[0]?.idCampania || "");
-  };
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const next = await getDashboardSecretaria();
+      setDashboard(next);
+      setSelectedCampaniaId((prev) => prev || next.campanias[0]?.idCampania || "");
+    } catch (error) {
+      setStatusMessage(getHumanErrorMessage(error instanceof Error ? error.message : ""));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     void refresh();
-  }, []);
+  }, [refresh]);
+
+  const campaniasFiltradas = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return (dashboard?.campanias ?? [])
+      .filter((item) => filtroEstado === "todos" || item.estado.toLowerCase() === filtroEstado)
+      .filter((item) => !query || item.nombre.toLowerCase().includes(query));
+  }, [dashboard?.campanias, filtroEstado, search]);
 
   const handleCloseCampania = async (idCampania: string) => {
     try {
@@ -1132,126 +1148,96 @@ function SecretariaAutoevaluacion() {
       setStatusMessage("Campana cerrada correctamente.");
       await refresh();
     } catch (error) {
-      const raw = error instanceof Error ? error.message : "";
-      setStatusMessage(getHumanErrorMessage(raw));
+      setStatusMessage(getHumanErrorMessage(error instanceof Error ? error.message : ""));
     }
   };
 
   const handleAdvertencia = async () => {
     if (!selectedCampaniaId || !advertencia.trim()) return;
-
     try {
-      await registrarAdvertencia(
-        { idCampania: selectedCampaniaId, detalle: advertencia.trim() },
-        `${user.nombre} ${user.apellido ?? ""}`.trim(),
-      );
+      await registrarAdvertencia({ idCampania: selectedCampaniaId, detalle: advertencia.trim() }, `${user.nombre} ${user.apellido ?? ""}`.trim());
       setStatusMessage("Advertencia registrada correctamente.");
       setAdvertencia("");
       await refresh();
     } catch (error) {
-      const raw = error instanceof Error ? error.message : "";
-      setStatusMessage(getHumanErrorMessage(raw));
+      setStatusMessage(getHumanErrorMessage(error instanceof Error ? error.message : ""));
     }
   };
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
-      <ModuloHero
-        title="Panel Secretaria Academica"
-        description="Vista global institucional para seguimiento, cierres y exportaciones."
-      />
-
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
-        <StatCard title="Campanas" value={dashboard?.campanias.length ?? 0} />
-        <StatCard title="Asignaciones" value={dashboard?.totalAsignaciones ?? 0} />
-        <StatCard title="Pendientes" value={dashboard?.pendientes ?? 0} tone="warning" />
+      <ModuloHero title="Panel Secretaria Academica" description="Vista global institucional para seguimiento, cierres y exportaciones." />
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4">
+        <StatCard title="Total campanas" value={dashboard?.campanias.length ?? 0} />
+        <StatCard title="Total asignaciones" value={dashboard?.totalAsignaciones ?? 0} />
         <StatCard title="Completadas" value={dashboard?.completadas ?? 0} tone="success" />
-        <StatCard title="Advertencias" value={dashboard?.advertencias ?? 0} />
+        <StatCard title="Pendientes" value={dashboard?.pendientes ?? 0} tone="warning" />
+        <StatCard title="Vencidas" value={dashboard?.vencidas ?? 0} tone="danger" />
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+        <Card className="border-slate-200 shadow-sm">
+          <CardHeader><CardTitle>Indicadores globales</CardTitle><CardDescription>{dashboard?.porcentajeCompletado ?? 0}% completado institucional</CardDescription></CardHeader>
+          <CardContent><MetricChart data={(dashboard?.porEstado ?? []).map((item) => ({ name: item.estado, value: item.cantidad }))} /></CardContent>
+        </Card>
+        <Card className="border-slate-200 shadow-sm">
+          <CardHeader><CardTitle>Exportacion institucional</CardTitle><CardDescription>Descarga completa de campaña en formato .xlsx.</CardDescription></CardHeader>
+          <CardContent className="space-y-3">
+            <select value={selectedCampaniaId} onChange={(event) => setSelectedCampaniaId(event.target.value)} className="h-10 w-full rounded-md border border-slate-200 px-3 text-sm bg-white">
+              {(dashboard?.campanias ?? []).map((item) => <option key={item.idCampania} value={item.idCampania}>{item.nombre}</option>)}
+            </select>
+            <Button type="button" variant="outline" onClick={() => { if (selectedCampaniaId) void exportarCampaniaExcel(selectedCampaniaId); }}>
+              <Download className="w-4 h-4" /> Exportar campana
+            </Button>
+            <StatusMessage message={statusMessage} />
+          </CardContent>
+        </Card>
       </div>
 
       <Card className="border-slate-200 shadow-sm">
-        <CardHeader>
-          <CardTitle>Campanas institucionales</CardTitle>
-          <CardDescription>Seleccione, cierre y exporte campanas.</CardDescription>
+        <CardHeader className="gap-3">
+          <div>
+            <CardTitle>Campanas institucionales</CardTitle>
+            <CardDescription>Seleccione, cierre y monitoree campañas.</CardDescription>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2">
+            <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar campana" />
+            <select value={filtroEstado} onChange={(event) => setFiltroEstado(event.target.value as EstadoFiltro)} className="h-10 rounded-md border border-slate-200 px-3 text-sm bg-white">
+              {ESTADO_OPTIONS.map((estado) => <option key={estado} value={estado}>{estado === "todos" ? "Todos los estados" : estado}</option>)}
+            </select>
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex flex-wrap gap-2">
-            <select
-              value={selectedCampaniaId}
-              onChange={(event) => setSelectedCampaniaId(event.target.value)}
-              className="h-10 rounded-md border border-slate-200 px-3 text-sm bg-white"
-            >
-              {(dashboard?.campanias ?? []).map((item) => (
-                <option key={item.idCampania} value={item.idCampania}>
-                  {item.nombre}
-                </option>
-              ))}
-            </select>
-
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => {
-                if (!selectedCampaniaId) return;
-                void exportarCampaniaExcel(selectedCampaniaId);
-              }}
-            >
-              <Download className="w-4 h-4" /> Exportar campana
-            </Button>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-            {(dashboard?.campanias ?? []).map((item) => (
-              <article key={item.idCampania} className="rounded-2xl border border-slate-200 p-4">
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="font-semibold text-slate-900">{item.nombre}</p>
-                    <p className="text-xs text-slate-500 mt-1">Tipo: {parseTipoFromDescripcion(item.descripcion)}</p>
-                    <p className="text-xs text-slate-500">Inicio: {formatDate(item.fechaInicio)} · Fin: {formatDate(item.fechaFin)}</p>
+          {loading ? <LoadingBlock /> : (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              {campaniasFiltradas.map((item) => (
+                <article key={item.idCampania} className="rounded-2xl border border-slate-200 p-4 min-w-0">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-slate-900 break-words">{item.nombre}</p>
+                      <p className="text-xs text-slate-500 mt-1">Tipo: {parseTipoFromDescripcion(item.descripcion)}</p>
+                      <p className="text-xs text-slate-500">Inicio: {formatDate(item.fechaInicio)} · Fin: {formatDate(item.fechaFin)}</p>
+                    </div>
+                    <EstadoBadge estado={item.estado} />
                   </div>
-                  <EstadoBadge estado={item.estado} />
-                </div>
-
-                <div className="mt-3 flex gap-2">
-                  {item.estado.toLowerCase() === "activa" && (
-                    <Button type="button" variant="outline" onClick={() => void handleCloseCampania(item.idCampania)}>
-                      Cerrar
-                    </Button>
-                  )}
-                  <Button type="button" variant="outline" onClick={() => setSelectedCampaniaId(item.idCampania)}>
-                    Seleccionar
-                  </Button>
-                </div>
-              </article>
-            ))}
-          </div>
-
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {item.estado.toLowerCase() === "activa" && <Button type="button" variant="outline" onClick={() => void handleCloseCampania(item.idCampania)}>Cerrar</Button>}
+                    <Button type="button" variant="outline" onClick={() => setSelectedCampaniaId(item.idCampania)}>Seleccionar</Button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+          {!loading && campaniasFiltradas.length === 0 && <EmptyState>No hay campanas para los filtros seleccionados.</EmptyState>}
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-3">
             <h4 className="font-semibold text-slate-900">Registrar advertencia</h4>
             <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2">
-              <Input
-                value={advertencia}
-                onChange={(event) => setAdvertencia(event.target.value)}
-                placeholder="Detalle de advertencia institucional"
-              />
+              <Input value={advertencia} onChange={(event) => setAdvertencia(event.target.value)} placeholder="Detalle de advertencia institucional" />
               <Button type="button" onClick={() => void handleAdvertencia()}>
                 <ShieldAlert className="w-4 h-4" /> Registrar
               </Button>
             </div>
-            <p className="text-xs text-slate-500">Nota: si la tabla de observaciones no admite escritura desde el cliente, esta accion puede requerir backend con permisos ampliados.</p>
           </div>
-
-          {statusMessage && (
-            <p
-              className={`text-sm rounded-lg px-3 py-2 border ${
-                statusMessage.toLowerCase().includes("correctamente")
-                  ? "text-emerald-700 border-emerald-200 bg-emerald-50"
-                  : "text-rose-700 border-rose-200 bg-rose-50"
-              }`}
-            >
-              {statusMessage}
-            </p>
-          )}
         </CardContent>
       </Card>
     </div>
@@ -1261,14 +1247,8 @@ function SecretariaAutoevaluacion() {
 export function AutoevaluacionForm() {
   const { user } = useUser();
 
-  if (user.rol === "DOCENTE" || user.rol === "DOCENTE_RESPONSABLE") {
-    return <DocenteAutoevaluacion />;
-  }
-
-  if (user.rol === "JEFE_CARRERA") {
-    return <JefeAutoevaluacion />;
-  }
-
+  if (user.rol === "DOCENTE" || user.rol === "DOCENTE_RESPONSABLE") return <DocenteAutoevaluacion />;
+  if (user.rol === "JEFE_CARRERA") return <JefeAutoevaluacion />;
   if (
     user.rol === "SECRETARIA"
     || user.rol === "SEC_TECNICA"

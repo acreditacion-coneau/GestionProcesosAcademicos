@@ -67,6 +67,11 @@ export const asignacionCompletada: AsignacionEvaluacion = {
   ...asignacionPendiente,
   idAsignacion: "asignacion-completada",
   estado: "completada",
+  fechaRespuesta: "2026-03-10T12:00:00.000Z",
+  completedAt: "2026-03-10T12:00:00.000Z",
+  firmaHash: "hash-test",
+  firmaBase64: "ZmlybWE=",
+  firmadaAt: "2026-03-10T12:00:00.000Z",
 };
 
 export const detallePendiente: AutoevaluacionDetalle = {
@@ -147,6 +152,7 @@ export const detalleCompletado: AutoevaluacionDetalle = {
 
 export const dashboardJefe: DashboardJefeCarrera = {
   totalDocentes: 2,
+  totalAsignaciones: 2,
   pendientes: 1,
   completadas: 1,
   vencidas: 0,
@@ -155,9 +161,34 @@ export const dashboardJefe: DashboardJefeCarrera = {
     {
       idAsignacion: "asignacion-1",
       docente: "Carlos Gomez",
+      carrera: "Arquitectura",
       asignatura: "Matematica II",
       estado: "pendiente",
       fechaEnvio: null,
+      fechaRespuesta: null,
+    },
+    {
+      idAsignacion: "asignacion-completada",
+      docente: "Ana Sanchez",
+      carrera: "Arquitectura",
+      asignatura: "Morfologia",
+      estado: "completada",
+      fechaEnvio: "2026-03-10T12:00:00.000Z",
+      fechaRespuesta: "2026-03-10T12:00:00.000Z",
+    },
+  ],
+  porAsignatura: [
+    {
+      asignatura: "Matematica II",
+      completadas: 0,
+      pendientes: 1,
+      vencidas: 0,
+    },
+    {
+      asignatura: "Morfologia",
+      completadas: 1,
+      pendientes: 0,
+      vencidas: 0,
     },
   ],
 };
@@ -169,5 +200,11 @@ export const dashboardSecretaria: DashboardSecretaria = {
   completadas: 1,
   vencidas: 0,
   advertencias: 0,
+  porcentajeCompletado: 50,
+  porEstado: [
+    { estado: "Completadas", cantidad: 1 },
+    { estado: "Pendientes", cantidad: 1 },
+    { estado: "Vencidas", cantidad: 0 },
+  ],
   auditoriaReciente: [],
 };

@@ -1,91 +1,174 @@
-﻿import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
-import { useUser } from "../context/UserContext";
-import { Check, X, FileText, Activity, Search, Filter, BookOpen, UserCircle, Eye, Mail, ArrowUpRight, ArrowDownRight, FileSpreadsheet, Download } from "lucide-react";
-import { PieChart, Pie, Cell, Tooltip as RechartsTooltip, ResponsiveContainer } from "recharts";
-import * as XLSX from "xlsx";
+import {
+  AlertCircle,
+  BookOpen,
+  CheckCircle2,
+  Download,
+  Eye,
+  FileSpreadsheet,
+  FileText,
+  Filter,
+  Loader2,
+  RefreshCw,
+  Search,
+  UserCircle,
+  XCircle,
+} from "lucide-react";
+import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip as RechartsTooltip } from "recharts";
+import {
+  exportarAsignacionExcel,
+  exportarCampaniaExcel,
+  getAutoevaluacionDetalle,
+  getSecretariaAutoevaluacionDashboard,
+} from "../services/autoevaluacionService";
+import type {
+  AutoevaluacionDetalle,
+  CampaniaEvaluacion,
+  EstadoAsignacion,
+  SecretariaAutoevaluacionDashboard,
+  SecretariaAutoevaluacionRow,
+} from "../types/autoevaluacion";
 
-type Solicitud = {
-  id: number;
-  tipo: string;
-  responsable: string;
-  alumno: string;
-  dni: string;
-  nota: number;
-  estado: "Pendiente V1" | "Pendiente V2" | "RF Generada" | "Rechazado";
+const STATUS_COLORS: Record<string, string> = {
+  Completadas: "#10b981",
+  Pendientes: "#f59e0b",
+  Vencidas: "#e11d48",
 };
 
-type ResolucionPDF = {
-  id: string;
-  titulo: string;
-  fecha: string;
-  carrera: string;
-  estado: "Vigente" | "Superadas";
-  feedback: string | null;
-};
+function estadoNormalizado(estado: string): string {
+  return estado.trim().toLowerCase();
+}
 
-type Evaluacion = {
-  id: number;
-  nombre: string;
-  cargo: string;
-  asignatura: string;
-  alertas: number;
-};
+function formatDate(value: string | null | undefined): string {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString("es-AR");
+}
 
-// --- Isolated chart sub-components to prevent cross-chart React key conflicts ---
-const donutDataStatic = [
-  { id: 'saludable', name: 'Saludable', value: 85, color: '#10b981' },
-  { id: 'precaucion', name: 'Precaución', value: 20, color: '#f59e0b' },
-  { id: 'critico', name: 'Crítico', value: 15, color: '#e11d48' },
-];
+function getCampaniaYear(campania: CampaniaEvaluacion): string {
+  const base = campania.fechaInicio || campania.createdAt;
+  const date = new Date(base);
+  if (!Number.isNaN(date.getTime())) return String(date.getFullYear());
+  const match = campania.nombre.match(/\b(20\d{2})\b/);
+  return match?.[1] ?? "-";
+}
 
-const gaugeDataStatic = [
-  { id: 'completado', name: 'Completado', value: 75, color: '#1e3a8a' },
-  { id: 'pendiente', name: 'Pendiente', value: 25, color: '#e2e8f0' },
-];
+function getEstadoBadgeClass(estado: EstadoAsignacion): string {
+  const normalized = estadoNormalizado(estado);
+  if (normalized === "completada") return "bg-emerald-50 text-emerald-700 border-emerald-200";
+  if (normalized === "vencida") return "bg-rose-50 text-rose-700 border-rose-200";
+  return "bg-amber-50 text-amber-700 border-amber-200";
+}
 
-const barDataStatic = [
-  { id: '1ro', year: '1ro', alertas: 12 },
-  { id: '2do', year: '2do', alertas: 8 },
-  { id: '3ro', year: '3ro', alertas: 18 },
-  { id: 'talleres', year: 'Talleres', alertas: 5 },
-];
+function getEstadoLabel(estado: EstadoAsignacion): string {
+  const normalized = estadoNormalizado(estado);
+  if (normalized === "completada") return "Completada";
+  if (normalized === "vencida") return "Vencida";
+  return "Pendiente";
+}
 
-function DonutChart() {
+function SkeletonBlock({ className = "" }: { className?: string }) {
+  return <div className={`animate-pulse rounded-lg bg-slate-100 ${className}`} />;
+}
+
+function EmptyState({ title, description }: { title: string; description: string }) {
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-8 text-center">
+      <div className="w-12 h-12 rounded-full bg-slate-100 text-slate-400 flex items-center justify-center mx-auto">
+        <FileText className="w-6 h-6" />
+      </div>
+      <h3 className="mt-4 text-base font-bold text-slate-800">{title}</h3>
+      <p className="mt-1 text-sm text-slate-500">{description}</p>
+    </div>
+  );
+}
+
+function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-rose-100 p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex items-start gap-3">
+        <AlertCircle className="w-5 h-5 text-rose-600 mt-0.5" />
+        <div>
+          <h3 className="font-bold text-slate-800">No se pudo cargar el Centro de Mando</h3>
+          <p className="text-sm text-slate-500 mt-1">{message}</p>
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50"
+      >
+        <RefreshCw className="w-4 h-4" />
+        Reintentar
+      </button>
+    </div>
+  );
+}
+
+function KpiCard({
+  label,
+  value,
+  tone = "blue",
+}: {
+  label: string;
+  value: string | number;
+  tone?: "blue" | "green" | "amber" | "rose";
+}) {
+  const toneClass = {
+    blue: "text-[#1e3a8a]",
+    green: "text-emerald-600",
+    amber: "text-amber-500",
+    rose: "text-rose-600",
+  }[tone];
+
+  return (
+    <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between min-h-[132px]">
+      <p className="text-sm font-medium text-slate-500">{label}</p>
+      <div className="mt-2 flex items-baseline gap-2">
+        <span className={`text-4xl font-black ${toneClass}`}>{value}</span>
+      </div>
+      <p className="text-xs text-slate-500 font-medium mt-3">Datos de la campaña seleccionada</p>
+    </div>
+  );
+}
+
+function DonutChart({ data, total }: { data: SecretariaAutoevaluacionDashboard["porEstado"]; total: number }) {
   return (
     <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col h-[320px]">
-      <h3 className="text-sm font-bold text-slate-700 mb-2">Nivel de Riesgo (Docentes)</h3>
+      <h3 className="text-sm font-bold text-slate-700 mb-2">Estado de Autoevaluaciones</h3>
       <div className="flex-1 relative">
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie
-              data={donutDataStatic}
+              data={data}
               cx="50%"
               cy="50%"
               innerRadius={60}
               outerRadius={90}
               paddingAngle={2}
-              dataKey="value"
-              nameKey="name"
+              dataKey="cantidad"
+              nameKey="estado"
               isAnimationActive={false}
             >
-              {donutDataStatic.map((entry) => (
-                <Cell key={`donut-cell-${entry.id}`} fill={entry.color} />
+              {data.map((entry) => (
+                <Cell key={`donut-cell-${entry.estado}`} fill={STATUS_COLORS[entry.estado]} />
               ))}
             </Pie>
-            <RechartsTooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+            <RechartsTooltip contentStyle={{ borderRadius: "8px", border: "none", boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)" }} />
           </PieChart>
         </ResponsiveContainer>
         <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none pb-2">
-          <span className="text-3xl font-black text-slate-800">120</span>
+          <span className="text-3xl font-black text-slate-800">{total}</span>
           <span className="text-xs text-slate-500 font-medium">Total</span>
         </div>
       </div>
-      <div className="flex justify-center gap-4 mt-2">
-        {donutDataStatic.map((d) => (
-          <div key={`legend-${d.id}`} className="flex items-center gap-1">
-            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: d.color }}></div>
-            <span className="text-xs text-slate-600">{d.name}</span>
+      <div className="flex flex-wrap justify-center gap-4 mt-2">
+        {data.map((item) => (
+          <div key={`legend-${item.estado}`} className="flex items-center gap-1">
+            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: STATUS_COLORS[item.estado] }} />
+            <span className="text-xs text-slate-600">{item.estado}</span>
           </div>
         ))}
       </div>
@@ -93,7 +176,13 @@ function DonutChart() {
   );
 }
 
-function GaugeChart() {
+function GaugeChart({ porcentaje }: { porcentaje: number }) {
+  const safeValue = Math.max(0, Math.min(100, Math.round(porcentaje)));
+  const gaugeData = [
+    { id: "completado", name: "Completado", value: safeValue, color: "#1e3a8a" },
+    { id: "pendiente", name: "Pendiente", value: 100 - safeValue, color: "#e2e8f0" },
+  ];
+
   return (
     <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col h-[320px]">
       <h3 className="text-sm font-bold text-slate-700 mb-2">Progreso de la Campaña</h3>
@@ -101,27 +190,26 @@ function GaugeChart() {
         <ResponsiveContainer width="100%" height={200}>
           <PieChart>
             <Pie
-              data={gaugeDataStatic}
+              data={gaugeData}
               cx="50%"
               cy="100%"
               startAngle={180}
               endAngle={0}
               innerRadius={80}
               outerRadius={110}
-              paddingAngle={0}
               dataKey="value"
               nameKey="name"
               stroke="none"
               isAnimationActive={false}
             >
-              {gaugeDataStatic.map((entry) => (
+              {gaugeData.map((entry) => (
                 <Cell key={`gauge-cell-${entry.id}`} fill={entry.color} />
               ))}
             </Pie>
           </PieChart>
         </ResponsiveContainer>
         <div className="absolute top-[60%] flex flex-col items-center">
-          <span className="text-4xl font-black text-[#1e3a8a]">75%</span>
+          <span className="text-4xl font-black text-[#1e3a8a]">{safeValue}%</span>
           <span className="text-sm text-slate-500 font-medium">Completado</span>
         </div>
       </div>
@@ -129,275 +217,172 @@ function GaugeChart() {
   );
 }
 
-function AlertasBarChart() {
-  const maxValue = Math.max(...barDataStatic.map(d => d.alertas));
+function CarreraBarChart({ data }: { data: SecretariaAutoevaluacionDashboard["porCarrera"] }) {
+  const chartData = data.slice(0, 8);
 
   return (
     <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col h-[320px]">
-      <h3 className="text-sm font-bold text-slate-700 mb-4">Alertas por Año Académico</h3>
-      <div className="flex-1 flex flex-col justify-end gap-3">
-        {barDataStatic.map((entry) => {
-          const pct = maxValue > 0 ? (entry.alertas / maxValue) * 100 : 0;
-          return (
-            <div key={`bar-row-${entry.id}`} className="flex items-center gap-3">
-              <span className="text-xs text-slate-500 w-12 shrink-0 text-right">{entry.year}</span>
+      <h3 className="text-sm font-bold text-slate-700 mb-4">Cumplimiento por Carrera</h3>
+      {chartData.length === 0 ? (
+        <div className="flex-1 flex items-center justify-center text-sm text-slate-500 text-center px-4">
+          No hay carreras con asignaciones en esta campaña.
+        </div>
+      ) : (
+        <div className="flex-1 flex flex-col justify-end gap-3 overflow-hidden">
+          {chartData.map((entry) => (
+            <div key={entry.carrera} className="flex items-center gap-3 min-w-0">
+              <span className="text-xs text-slate-500 w-20 shrink-0 text-right truncate" title={entry.carrera}>
+                {entry.carrera}
+              </span>
               <div className="flex-1 bg-slate-100 rounded-full h-6 overflow-hidden">
                 <div
-                  className="h-full rounded-full bg-amber-400 flex items-center justify-end pr-2 transition-all duration-500"
-                  style={{ width: `${pct}%` }}
+                  className="h-full rounded-full bg-emerald-500 flex items-center justify-end pr-2 transition-all duration-500 min-w-[2px]"
+                  style={{ width: `${Math.max(0, Math.min(100, entry.porcentajeCompletado))}%` }}
                 >
-                  {pct > 20 && (
-                    <span className="text-xs font-bold text-white">{entry.alertas}</span>
+                  {entry.porcentajeCompletado > 20 && (
+                    <span className="text-xs font-bold text-white">{entry.porcentajeCompletado}%</span>
                   )}
                 </div>
               </div>
-              {pct <= 20 && (
-                <span className="text-xs font-bold text-slate-600 w-5 shrink-0">{entry.alertas}</span>
+              {entry.porcentajeCompletado <= 20 && (
+                <span className="text-xs font-bold text-slate-600 w-9 shrink-0">{entry.porcentajeCompletado}%</span>
               )}
             </div>
-          );
-        })}
-      </div>
+          ))}
+        </div>
+      )}
       <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between">
-        <span className="text-xs text-slate-400">0</span>
-        <span className="text-xs text-slate-400">Alertas por año</span>
-        <span className="text-xs text-slate-400">{maxValue}</span>
+        <span className="text-xs text-slate-400">0%</span>
+        <span className="text-xs text-slate-400">Porcentaje completado</span>
+        <span className="text-xs text-slate-400">100%</span>
       </div>
     </div>
   );
 }
 
-// Mock autoevaluación data per teacher
-type RespuestaAutoevaluacion = {
-  dimension: string;
-  indicador: string;
-  planillaA: string;
-  planillaB: string;
-  puntaje: number;
-  observaciones: string;
-};
+function RespuestasModal({ detalle, onClose }: { detalle: AutoevaluacionDetalle; onClose: () => void }) {
+  const respuestasByPregunta = new Map(detalle.respuestas.map((respuesta) => [respuesta.idPregunta, respuesta.respuesta]));
 
-const mockAutoevaluaciones: Record<number, RespuestaAutoevaluacion[]> = {
-  1: [
-    { dimension: "Docencia", indicador: "Preparación de clases", planillaA: "Siempre", planillaB: "Casi siempre", puntaje: 4, observaciones: "Revisión de materiales semanalmente" },
-    { dimension: "Docencia", indicador: "Uso de recursos didácticos", planillaA: "Casi siempre", planillaB: "A veces", puntaje: 3, observaciones: "Se incorporaron TICs en 2025" },
-    { dimension: "Investigación", indicador: "Producción académica", planillaA: "A veces", planillaB: "Nunca", puntaje: 1, observaciones: "Sin publicaciones en el período" },
-    { dimension: "Extensión", indicador: "Participación en proyectos", planillaA: "Siempre", planillaB: "Siempre", puntaje: 5, observaciones: "Coord. proyecto extensión FAUD" },
-    { dimension: "Gestión", indicador: "Asistencia a reuniones", planillaA: "A veces", planillaB: "A veces", puntaje: 2, observaciones: "Conflicto de horarios reportado" },
-  ],
-  2: [
-    { dimension: "Docencia", indicador: "Preparación de clases", planillaA: "Siempre", planillaB: "Siempre", puntaje: 5, observaciones: "Material actualizado cada cuatrimestre" },
-    { dimension: "Docencia", indicador: "Uso de recursos didácticos", planillaA: "Siempre", planillaB: "Casi siempre", puntaje: 4, observaciones: "Laboratorios virtuales incorporados" },
-    { dimension: "Investigación", indicador: "Producción académica", planillaA: "Casi siempre", planillaB: "Casi siempre", puntaje: 4, observaciones: "2 ponencias en congreso 2025" },
-    { dimension: "Extensión", indicador: "Participación en proyectos", planillaA: "Siempre", planillaB: "Siempre", puntaje: 5, observaciones: "Voluntario activo" },
-    { dimension: "Gestión", indicador: "Asistencia a reuniones", planillaA: "Siempre", planillaB: "Siempre", puntaje: 5, observaciones: "" },
-  ],
-  3: [
-    { dimension: "Docencia", indicador: "Preparación de clases", planillaA: "Casi siempre", planillaB: "Siempre", puntaje: 4, observaciones: "" },
-    { dimension: "Docencia", indicador: "Uso de recursos didácticos", planillaA: "A veces", planillaB: "Casi siempre", puntaje: 3, observaciones: "En proceso de capacitación TIC" },
-    { dimension: "Investigación", indicador: "Producción académica", planillaA: "A veces", planillaB: "A veces", puntaje: 2, observaciones: "1 artículo en revisión" },
-    { dimension: "Extensión", indicador: "Participación en proyectos", planillaA: "Casi siempre", planillaB: "A veces", puntaje: 3, observaciones: "" },
-    { dimension: "Gestión", indicador: "Asistencia a reuniones", planillaA: "Casi siempre", planillaB: "Casi siempre", puntaje: 3, observaciones: "" },
-  ],
-  4: [
-    { dimension: "Docencia", indicador: "Preparación de clases", planillaA: "A veces", planillaB: "Nunca", puntaje: 1, observaciones: "Situación en seguimiento" },
-    { dimension: "Docencia", indicador: "Uso de recursos didácticos", planillaA: "Nunca", planillaB: "Nunca", puntaje: 0, observaciones: "Sin evidencias" },
-    { dimension: "Investigación", indicador: "Producción académica", planillaA: "Nunca", planillaB: "Nunca", puntaje: 0, observaciones: "" },
-    { dimension: "Extensión", indicador: "Participación en proyectos", planillaA: "A veces", planillaB: "Nunca", puntaje: 1, observaciones: "" },
-    { dimension: "Gestión", indicador: "Asistencia a reuniones", planillaA: "Nunca", planillaB: "Nunca", puntaje: 0, observaciones: "Ausencias reiteradas" },
-  ],
-  5: [
-    { dimension: "Docencia", indicador: "Preparación de clases", planillaA: "Siempre", planillaB: "Siempre", puntaje: 5, observaciones: "" },
-    { dimension: "Docencia", indicador: "Uso de recursos didácticos", planillaA: "Siempre", planillaB: "Siempre", puntaje: 5, observaciones: "Modelo de innovación pedagógica" },
-    { dimension: "Investigación", indicador: "Producción académica", planillaA: "Siempre", planillaB: "Siempre", puntaje: 5, observaciones: "3 publicaciones ISI 2025" },
-    { dimension: "Extensión", indicador: "Participación en proyectos", planillaA: "Siempre", planillaB: "Siempre", puntaje: 5, observaciones: "Directora proyecto extensión" },
-    { dimension: "Gestión", indicador: "Asistencia a reuniones", planillaA: "Siempre", planillaB: "Siempre", puntaje: 5, observaciones: "" },
-  ],
-  6: [
-    { dimension: "Docencia", indicador: "Preparación de clases", planillaA: "Casi siempre", planillaB: "A veces", puntaje: 2, observaciones: "Demoras en entrega de materiales" },
-    { dimension: "Docencia", indicador: "Uso de recursos didácticos", planillaA: "A veces", planillaB: "A veces", puntaje: 2, observaciones: "" },
-    { dimension: "Investigación", indicador: "Producción académica", planillaA: "Casi siempre", planillaB: "Casi siempre", puntaje: 4, observaciones: "Tesis doctoral en curso" },
-    { dimension: "Extensión", indicador: "Participación en proyectos", planillaA: "A veces", planillaB: "A veces", puntaje: 2, observaciones: "" },
-    { dimension: "Gestión", indicador: "Asistencia a reuniones", planillaA: "Casi siempre", planillaB: "A veces", puntaje: 2, observaciones: "" },
-  ],
-};
+  return (
+    <div className="fixed inset-0 z-50 bg-slate-900/40 p-4 flex items-center justify-center">
+      <div className="bg-white rounded-xl shadow-xl border border-slate-100 w-full max-w-4xl max-h-[88vh] overflow-hidden flex flex-col">
+        <div className="p-5 border-b border-slate-100 flex items-start justify-between gap-4">
+          <div>
+            <h3 className="text-lg font-bold text-slate-800">Respuestas enviadas</h3>
+            <p className="text-sm text-slate-500 mt-1">
+              {detalle.asignacion.asignatura} - {detalle.asignacion.carrera}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+            aria-label="Cerrar respuestas"
+          >
+            <XCircle className="w-5 h-5" />
+          </button>
+        </div>
+        <div className="overflow-y-auto p-5 divide-y divide-slate-100">
+          {detalle.preguntas.map((pregunta) => (
+            <div key={pregunta.idPregunta} className="py-4 first:pt-0">
+              <p className="text-sm font-semibold text-slate-800">{pregunta.pregunta}</p>
+              <p className="text-sm text-slate-600 mt-2 whitespace-pre-wrap">
+                {respuestasByPregunta.get(pregunta.idPregunta) || "Sin respuesta registrada."}
+              </p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function SecretariaDashboard() {
-  const { user } = useUser();
   const [activeTab, setActiveTab] = useState<"tramites" | "archivo" | "semaforo">("semaforo");
-
-  // --- TAB 1: TRÁMITES ---
-  const [solicitudes, setSolicitudes] = useState<Solicitud[]>([
-    { id: 301, tipo: "Ayudante", responsable: "Arq. Mario B.", alumno: "Juan Pérez", dni: "44555666", nota: 8.5, estado: "Pendiente V1" },
-    { id: 302, tipo: "Adscripto", responsable: "Lic. Clara M.", alumno: "Ana López", dni: "42111222", nota: 6.5, estado: "Pendiente V1" },
-  ]);
-
-  const procesarSolicitud = (id: number, currentEstado: string, nota: number) => {
-    setSolicitudes(solicitudes.map(s => {
-      if (s.id === id) {
-        if (nota < 7) return { ...s, estado: "Rechazado" };
-        if (currentEstado === "Pendiente V1") return { ...s, estado: "Pendiente V2" };
-        if (currentEstado === "Pendiente V2") return { ...s, estado: "RF Generada" };
-      }
-      return s;
-    }));
-  };
-
-  const rechazarSolicitud = (id: number) => {
-    setSolicitudes(solicitudes.map(s => s.id === id ? { ...s, estado: "Rechazado" } : s));
-  };
-
-  // --- TAB 2: ARCHIVO ---
   const [searchTermArchivo, setSearchTermArchivo] = useState("");
-  const [resoluciones] = useState<ResolucionPDF[]>([
-    { id: "RF-2025-014", titulo: "Desig. Ayudante - Gómez", fecha: "2025-03-10", carrera: "Arquitectura", estado: "Superadas", feedback: "Excelente desempeño, se recomienda renovación." },
-    { id: "RF-2026-042", titulo: "Desig. Adscripto - Ruiz", fecha: "2026-02-15", carrera: "Diseño Ind.", estado: "Vigente", feedback: null },
-    { id: "RF-2025-089", titulo: "Desig. Ayudante - Díaz", fecha: "2025-07-20", carrera: "Lic. Interiores", estado: "Superadas", feedback: "Cumplió tareas parcialmente." },
-  ]);
-
-  const filteredResoluciones = resoluciones.filter(r => 
-    r.titulo.toLowerCase().includes(searchTermArchivo.toLowerCase()) || 
-    r.id.toLowerCase().includes(searchTermArchivo.toLowerCase())
-  );
-
-  // --- TAB 3: CENTRO DE MANDO (SEMÁFORO) ---
   const [searchTermSemaforo, setSearchTermSemaforo] = useState("");
-  const [filterRiesgo, setFilterRiesgo] = useState("Todos");
-  
-  const [evaluaciones] = useState<Evaluacion[]>([
-    { id: 1, nombre: "Laura Martínez", cargo: "Titular", asignatura: "Matemática", alertas: 3 },
-    { id: 2, nombre: "Carlos Gómez", cargo: "Auxiliar", asignatura: "Física", alertas: 0 },
-    { id: 3, nombre: "Ana Sánchez", cargo: "JTP", asignatura: "Química", alertas: 1 },
-    { id: 4, nombre: "Pedro Ruiz", cargo: "Adscripto", asignatura: "Biología", alertas: 4 },
-    { id: 5, nombre: "Julieta Paz", cargo: "Titular", asignatura: "Diseño II", alertas: 0 },
-    { id: 6, nombre: "Martín Fierro", cargo: "Ayudante", asignatura: "Estructuras", alertas: 2 },
-  ]);
+  const [filterEstado, setFilterEstado] = useState("Todos");
+  const [selectedCampaniaId, setSelectedCampaniaId] = useState("");
+  const [dashboard, setDashboard] = useState<SecretariaAutoevaluacionDashboard | null>(null);
+  const [isLoadingDashboard, setIsLoadingDashboard] = useState(false);
+  const [dashboardError, setDashboardError] = useState("");
+  const [selectedDetalle, setSelectedDetalle] = useState<AutoevaluacionDetalle | null>(null);
+  const [isLoadingDetalle, setIsLoadingDetalle] = useState(false);
 
-  // Chart Data — kept for reference but now used in isolated sub-components above
-  const donutData = donutDataStatic;
-  const gaugeData = gaugeDataStatic;
-  const barData = barDataStatic;
+  const loadDashboard = useCallback(async (idCampania?: string) => {
+    setIsLoadingDashboard(true);
+    setDashboardError("");
+    try {
+      const data = await getSecretariaAutoevaluacionDashboard(idCampania);
+      setDashboard(data);
+      if (!idCampania && data.campaniaActiva?.idCampania) {
+        setSelectedCampaniaId(data.campaniaActiva.idCampania);
+      }
+    } catch (error) {
+      setDashboardError(error instanceof Error ? error.message : "Error desconocido al consultar Supabase.");
+    } finally {
+      setIsLoadingDashboard(false);
+    }
+  }, []);
 
-  // Helper functions for Semaforo UI
-  const getPillStyle = (alertas: number) => {
-    if (alertas >= 3) return "bg-rose-100 text-rose-800 border-rose-200";
-    if (alertas >= 1) return "bg-amber-100 text-amber-800 border-amber-200";
-    return "bg-emerald-100 text-emerald-800 border-emerald-200";
-  };
+  useEffect(() => {
+    void loadDashboard(selectedCampaniaId || undefined);
+  }, [loadDashboard, selectedCampaniaId]);
 
-  const getStatusText = (alertas: number) => {
-    if (alertas >= 3) return "Crítico";
-    if (alertas >= 1) return "Precaución";
-    return "Saludable";
-  };
+  const filteredDocentes = useMemo(() => {
+    const rows = dashboard?.docentes ?? [];
+    const search = searchTermSemaforo.trim().toLowerCase();
+    const estado = filterEstado.toLowerCase();
 
-  const filteredEvaluaciones = evaluaciones.filter(ev => {
-    const matchesSearch = ev.nombre.toLowerCase().includes(searchTermSemaforo.toLowerCase());
-    const status = getStatusText(ev.alertas);
-    const matchesFilter = filterRiesgo === "Todos" || status === filterRiesgo;
-    return matchesSearch && matchesFilter;
-  });
-
-  // --- EXCEL DOWNLOAD FUNCTIONS ---
-  const buildWorkbook = (ev: Evaluacion) => {
-    const wb = XLSX.utils.book_new();
-    const respuestas = mockAutoevaluaciones[ev.id] ?? [];
-
-    // Sheet 1: Datos del docente
-    const infoData = [
-      ["AUTOEVALUACIÓN DOCENTE 2026 – Portal Docente FAUD"],
-      [],
-      ["Nombre completo", ev.nombre],
-      ["Cargo", ev.cargo],
-      ["Asignatura", ev.asignatura],
-      ["Estado de riesgo", getStatusText(ev.alertas)],
-      ["N° de alertas", ev.alertas],
-      ["Fecha de descarga", new Date().toLocaleDateString("es-AR")],
-    ];
-    const wsInfo = XLSX.utils.aoa_to_sheet(infoData);
-    wsInfo["!cols"] = [{ wch: 28 }, { wch: 40 }];
-    XLSX.utils.book_append_sheet(wb, wsInfo, "Datos Docente");
-
-    // Sheet 2: Planilla A
-    const planillaAHeader = [["Dimensión", "Indicador", "Respuesta (Planilla A)", "Puntaje", "Observaciones"]];
-    const planillaARows = respuestas.map(r => [r.dimension, r.indicador, r.planillaA, r.puntaje, r.observaciones]);
-    const wsA = XLSX.utils.aoa_to_sheet([...planillaAHeader, ...planillaARows]);
-    wsA["!cols"] = [{ wch: 18 }, { wch: 35 }, { wch: 20 }, { wch: 10 }, { wch: 40 }];
-    XLSX.utils.book_append_sheet(wb, wsA, "Planilla A");
-
-    // Sheet 3: Planilla B
-    const planillaBHeader = [["Dimensión", "Indicador", "Respuesta (Planilla B)", "Puntaje", "Observaciones"]];
-    const planillaBRows = respuestas.map(r => [r.dimension, r.indicador, r.planillaB, r.puntaje, r.observaciones]);
-    const wsB = XLSX.utils.aoa_to_sheet([...planillaBHeader, ...planillaBRows]);
-    wsB["!cols"] = [{ wch: 18 }, { wch: 35 }, { wch: 20 }, { wch: 10 }, { wch: 40 }];
-    XLSX.utils.book_append_sheet(wb, wsB, "Planilla B");
-
-    // Sheet 4: Comparativa
-    const compHeader = [["Dimensión", "Indicador", "Planilla A", "Planilla B", "Puntaje", "Divergencia", "Observaciones"]];
-    const compRows = respuestas.map(r => [
-      r.dimension,
-      r.indicador,
-      r.planillaA,
-      r.planillaB,
-      r.puntaje,
-      r.planillaA !== r.planillaB ? "Sí" : "No",
-      r.observaciones,
-    ]);
-    const wsComp = XLSX.utils.aoa_to_sheet([...compHeader, ...compRows]);
-    wsComp["!cols"] = [{ wch: 18 }, { wch: 35 }, { wch: 16 }, { wch: 16 }, { wch: 10 }, { wch: 12 }, { wch: 40 }];
-    XLSX.utils.book_append_sheet(wb, wsComp, "Comparativa");
-
-    return wb;
-  };
-
-  const handleDownloadExcel = (ev: Evaluacion) => {
-    const wb = buildWorkbook(ev);
-    const filename = `Autoevaluacion_${ev.nombre.replace(/\s+/g, "_")}_2026.xlsx`;
-    XLSX.writeFile(wb, filename);
-  };
-
-  const handleDownloadAllExcel = () => {
-    const wb = XLSX.utils.book_new();
-
-    // Summary sheet
-    const summaryHeader = [["Nombre", "Cargo", "Asignatura", "Estado", "N° Alertas"]];
-    const summaryRows = filteredEvaluaciones.map(ev => [
-      ev.nombre,
-      ev.cargo,
-      ev.asignatura,
-      getStatusText(ev.alertas),
-      ev.alertas,
-    ]);
-    const wsSummary = XLSX.utils.aoa_to_sheet([...summaryHeader, ...summaryRows]);
-    wsSummary["!cols"] = [{ wch: 28 }, { wch: 16 }, { wch: 26 }, { wch: 14 }, { wch: 12 }];
-    XLSX.utils.book_append_sheet(wb, wsSummary, "Resumen General");
-
-    // One sheet per teacher (comparativa)
-    filteredEvaluaciones.forEach(ev => {
-      const respuestas = mockAutoevaluaciones[ev.id] ?? [];
-      const header = [["Dimensión", "Indicador", "Planilla A", "Planilla B", "Puntaje", "Divergencia"]];
-      const rows = respuestas.map(r => [
-        r.dimension,
-        r.indicador,
-        r.planillaA,
-        r.planillaB,
-        r.puntaje,
-        r.planillaA !== r.planillaB ? "Sí" : "No",
-      ]);
-      const ws = XLSX.utils.aoa_to_sheet([...header, ...rows]);
-      ws["!cols"] = [{ wch: 16 }, { wch: 30 }, { wch: 16 }, { wch: 16 }, { wch: 10 }, { wch: 12 }];
-      // Sheet name max 31 chars, sanitize
-      const sheetName = ev.nombre.substring(0, 28).replace(/[:\\/?*[\]]/g, "");
-      XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    return rows.filter((row) => {
+      const matchesSearch = !search
+        || row.docente.toLowerCase().includes(search)
+        || row.asignatura.toLowerCase().includes(search);
+      const matchesEstado = filterEstado === "Todos" || estadoNormalizado(row.estado) === estado;
+      return matchesSearch && matchesEstado;
     });
+  }, [dashboard?.docentes, filterEstado, searchTermSemaforo]);
 
-    XLSX.writeFile(wb, `Autoevaluaciones_Completas_2026.xlsx`);
+  const handleChangeCampania = (idCampania: string) => {
+    setSelectedCampaniaId(idCampania);
+    setSearchTermSemaforo("");
+    setFilterEstado("Todos");
+  };
+
+  const handleVerRespuestas = async (row: SecretariaAutoevaluacionRow) => {
+    setIsLoadingDetalle(true);
+    setDashboardError("");
+    try {
+      const detalle = await getAutoevaluacionDetalle(row.idAsignacion);
+      if (!detalle) throw new Error("No se encontraron respuestas para la asignación seleccionada.");
+      setSelectedDetalle(detalle);
+    } catch (error) {
+      setDashboardError(error instanceof Error ? error.message : "No se pudieron cargar las respuestas.");
+    } finally {
+      setIsLoadingDetalle(false);
+    }
+  };
+
+  const handleExportarAsignacion = async (row: SecretariaAutoevaluacionRow) => {
+    try {
+      await exportarAsignacionExcel(row.idAsignacion);
+    } catch (error) {
+      setDashboardError(error instanceof Error ? error.message : "No se pudo exportar la autoevaluación.");
+    }
+  };
+
+  const handleExportarCampania = async () => {
+    const idCampania = dashboard?.campaniaActiva?.idCampania;
+    if (!idCampania) return;
+    try {
+      await exportarCampaniaExcel(idCampania);
+    } catch (error) {
+      setDashboardError(error instanceof Error ? error.message : "No se pudo exportar la campaña.");
+    }
   };
 
   return (
     <div className="space-y-6 bg-slate-50 min-h-screen p-4 md:p-8 animate-in fade-in duration-500 font-sans">
-      
-      {/* Header & Navigation Integration */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-2">
         <div>
           <h2 className="text-3xl font-bold text-slate-900 tracking-tight">
@@ -407,22 +392,20 @@ export function SecretariaDashboard() {
             Verificación de datos, resoluciones y control de gestión.
           </p>
         </div>
-        
-        {/* Tabs styled as soft pills */}
-        <div className="flex bg-white p-1 rounded-xl shadow-sm border border-slate-200 w-fit">
-          <button onClick={() => setActiveTab("tramites")} className={`px-5 py-2 font-medium text-sm rounded-lg transition-colors ${activeTab === "tramites" ? "bg-slate-100 text-slate-900" : "text-slate-500 hover:text-slate-800"}`}>
+
+        <div className="flex bg-white p-1 rounded-xl shadow-sm border border-slate-200 w-fit max-w-full overflow-x-auto">
+          <button onClick={() => setActiveTab("tramites")} className={`px-5 py-2 font-medium text-sm rounded-lg transition-colors whitespace-nowrap ${activeTab === "tramites" ? "bg-slate-100 text-slate-900" : "text-slate-500 hover:text-slate-800"}`}>
             Trámites Pendientes
           </button>
-          <button onClick={() => setActiveTab("archivo")} className={`px-5 py-2 font-medium text-sm rounded-lg transition-colors ${activeTab === "archivo" ? "bg-slate-100 text-slate-900" : "text-slate-500 hover:text-slate-800"}`}>
+          <button onClick={() => setActiveTab("archivo")} className={`px-5 py-2 font-medium text-sm rounded-lg transition-colors whitespace-nowrap ${activeTab === "archivo" ? "bg-slate-100 text-slate-900" : "text-slate-500 hover:text-slate-800"}`}>
             Archivo de RFs
           </button>
-          <button onClick={() => setActiveTab("semaforo")} className={`px-5 py-2 font-medium text-sm rounded-lg transition-colors ${activeTab === "semaforo" ? "bg-slate-100 text-slate-900" : "text-slate-500 hover:text-slate-800"}`}>
+          <button onClick={() => setActiveTab("semaforo")} className={`px-5 py-2 font-medium text-sm rounded-lg transition-colors whitespace-nowrap ${activeTab === "semaforo" ? "bg-slate-100 text-slate-900" : "text-slate-500 hover:text-slate-800"}`}>
             Centro de Mando
           </button>
         </div>
       </div>
 
-      {/* --- TAB 1 CONTENT: TRÁMITES --- */}
       {activeTab === "tramites" && (
         <div className="bg-white p-6 md:p-8 rounded-xl shadow-sm border border-slate-100 flex flex-col gap-6">
           <div className="flex items-center gap-3 mb-2">
@@ -434,7 +417,7 @@ export function SecretariaDashboard() {
               <p className="text-sm text-slate-500">Gestione y evalúe las designaciones en curso y pendientes de resolución.</p>
             </div>
           </div>
-          
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="bg-slate-50 p-6 rounded-xl border border-slate-200 shadow-sm flex flex-col items-center text-center gap-4 hover:shadow-md transition-shadow">
               <div className="w-12 h-12 bg-indigo-100 text-indigo-700 rounded-full flex items-center justify-center">
@@ -462,10 +445,11 @@ export function SecretariaDashboard() {
               </Link>
             </div>
           </div>
+
+          <EmptyState title="Sin datos de procesos en este panel" description="El Centro de Mando de Autoevaluaciones usa datos reales de campañas y asignaciones." />
         </div>
       )}
 
-      {/* --- TAB 2 CONTENT: ARCHIVO --- */}
       {activeTab === "archivo" && (
         <div className="bg-white p-6 md:p-8 rounded-xl shadow-sm border border-slate-100 flex flex-col">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
@@ -478,233 +462,218 @@ export function SecretariaDashboard() {
                 <p className="text-sm text-slate-500">Consulte el historial y feedback de designaciones Vigentes o Superadas.</p>
               </div>
             </div>
-            
+
             <div className="relative">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
                 placeholder="Buscar RF..."
                 value={searchTermArchivo}
-                onChange={(e) => setSearchTermArchivo(e.target.value)}
+                onChange={(event) => setSearchTermArchivo(event.target.value)}
                 className="pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm w-full md:w-64 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all"
               />
             </div>
           </div>
-          
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm text-slate-600">
-              <thead className="bg-slate-50 text-xs uppercase text-slate-500 border-b border-slate-200">
-                <tr>
-                  <th className="px-4 py-3 font-semibold">N° Resolución</th>
-                  <th className="px-4 py-3 font-semibold">Título</th>
-                  <th className="px-4 py-3 font-semibold">Carrera</th>
-                  <th className="px-4 py-3 font-semibold">Estado</th>
-                  <th className="px-4 py-3 font-semibold text-right">Feedback Docente</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {filteredResoluciones.map((rf) => (
-                  <tr key={rf.id} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-4 py-4 font-medium text-slate-900">{rf.id}</td>
-                    <td className="px-4 py-4 text-slate-700">{rf.titulo}</td>
-                    <td className="px-4 py-4 text-slate-700">{rf.carrera}</td>
-                    <td className="px-4 py-4">
-                      <span className={`px-2 py-1 rounded text-xs font-medium border ${rf.estado === "Vigente" ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-slate-100 text-slate-600 border-slate-200"}`}>
-                        {rf.estado}
-                      </span>
-                    </td>
-                    <td className="px-4 py-4 text-right">
-                      {rf.feedback ? (
-                        <div className="text-xs text-slate-500 italic text-left p-2 bg-slate-50 rounded border border-slate-100 line-clamp-2">
-                          "{rf.feedback}"
-                        </div>
-                      ) : (
-                        <span className="text-xs text-slate-400">Pendiente</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+
+          <EmptyState title="Sin resoluciones cargadas" description="No hay datos reales disponibles para esta sección en el contexto actual." />
         </div>
       )}
 
-      {/* --- TAB 3 CONTENT: CENTRO DE MANDO (SEMÁFORO) --- */}
       {activeTab === "semaforo" && (
         <div className="space-y-6">
-          {/* Header Dashboard */}
-          <div className="bg-white px-6 py-4 rounded-xl shadow-sm border border-slate-100 flex flex-col md:flex-row items-center justify-between gap-4">
-            <h1 className="text-2xl font-bold text-slate-800">Centro de Mando - Autoevaluación 2026</h1>
-            <div className="flex items-center gap-4 w-full md:w-auto">
-              <div className="relative flex-1 md:w-64">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  placeholder="Buscar global..."
-                  className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#1e3a8a]"
-                />
-              </div>
-              <div className="w-10 h-10 bg-slate-100 rounded-full flex items-center justify-center shrink-0">
-                <UserCircle className="w-6 h-6 text-slate-500" />
-              </div>
+          <div className="bg-white px-6 py-4 rounded-xl shadow-sm border border-slate-100 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-bold text-slate-800">Centro de Mando - Autoevaluaciones</h1>
+              <p className="text-sm text-slate-500 mt-1">
+                Campañas dinámicas y seguimiento institucional conectado a Supabase.
+              </p>
+            </div>
+            <div className="flex flex-col sm:flex-row items-center gap-3 w-full lg:w-auto">
+              <select
+                value={(selectedCampaniaId || dashboard?.campaniaActiva?.idCampania) ?? ""}
+                onChange={(event) => handleChangeCampania(event.target.value)}
+                className="w-full sm:w-80 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#1e3a8a]"
+                aria-label="Seleccionar campaña de autoevaluación"
+                disabled={isLoadingDashboard || (dashboard?.campanias.length ?? 0) === 0}
+              >
+                {(dashboard?.campanias ?? []).map((campania) => (
+                  <option key={campania.idCampania} value={campania.idCampania}>
+                    {campania.nombre} - {getCampaniaYear(campania)} - {campania.estado}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => void loadDashboard(selectedCampaniaId || dashboard?.campaniaActiva?.idCampania)}
+                className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50 w-full sm:w-auto"
+              >
+                <RefreshCw className="w-4 h-4" />
+                Actualizar
+              </button>
             </div>
           </div>
 
-          {/* KPIs Row */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between">
-              <p className="text-sm font-medium text-slate-500">Tasa de Participación</p>
-              <div className="mt-2 flex items-baseline gap-2">
-                <span className="text-4xl font-black text-[#1e3a8a]">85</span>
-                <span className="text-lg text-slate-400">/120</span>
-              </div>
-              <p className="text-xs text-emerald-600 font-medium flex items-center gap-1 mt-3">
-                <ArrowUpRight className="w-3 h-3" /> 15% vs año pasado
-              </p>
-            </div>
-            
-            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between">
-              <p className="text-sm font-medium text-slate-500">Casos Críticos Activos</p>
-              <div className="mt-2 flex items-baseline gap-2">
-                <span className="text-4xl font-black text-rose-600">15</span>
-                <span className="text-sm text-slate-400 ml-1">docentes</span>
-              </div>
-              <p className="text-xs text-rose-600 font-medium flex items-center gap-1 mt-3">
-                <ArrowUpRight className="w-3 h-3" /> 2 nuevos esta semana
-              </p>
-            </div>
-            
-            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between">
-              <p className="text-sm font-medium text-slate-500">Promedio Alertas/Docente</p>
-              <div className="mt-2 flex items-baseline gap-2">
-                <span className="text-4xl font-black text-[#1e3a8a]">1.4</span>
-              </div>
-              <p className="text-xs text-emerald-600 font-medium flex items-center gap-1 mt-3">
-                <ArrowDownRight className="w-3 h-3" /> 0.3 menos que 2025
-              </p>
-            </div>
-            
-            <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 flex flex-col justify-between">
-              <p className="text-sm font-medium text-slate-500">Evaluaciones Pendientes</p>
-              <div className="mt-2 flex items-baseline gap-2">
-                <span className="text-4xl font-black text-amber-500">35</span>
-              </div>
-              <p className="text-xs text-slate-500 font-medium flex items-center gap-1 mt-3">
-                En plazo límite de entrega
-              </p>
-            </div>
-          </div>
+          {dashboardError && <ErrorState message={dashboardError} onRetry={() => void loadDashboard(selectedCampaniaId || undefined)} />}
 
-          {/* Charts Row */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <DonutChart />
-            <GaugeChart />
-            <AlertasBarChart />
-          </div>
+          {isLoadingDashboard && !dashboard ? (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                {Array.from({ length: 5 }).map((_, index) => (
+                  <SkeletonBlock key={index} className="h-[132px]" />
+                ))}
+              </div>
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {Array.from({ length: 3 }).map((_, index) => (
+                  <SkeletonBlock key={index} className="h-[320px]" />
+                ))}
+              </div>
+              <SkeletonBlock className="h-[360px]" />
+            </div>
+          ) : !dashboard?.campaniaActiva ? (
+            <EmptyState title="Sin campañas de autoevaluación" description="Cree o active una campaña para visualizar métricas institucionales." />
+          ) : (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                <KpiCard label="Docentes convocados" value={dashboard.totalAsignaciones} />
+                <KpiCard label="Completadas" value={dashboard.completadas} tone="green" />
+                <KpiCard label="Pendientes" value={dashboard.pendientes} tone="amber" />
+                <KpiCard label="Vencidas" value={dashboard.vencidas} tone="rose" />
+                <KpiCard label="Cumplimiento" value={`${dashboard.porcentajeCompletado}%`} />
+              </div>
 
-          {/* Interactive Table (Vitamizada) */}
-          <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
-            
-            {/* Table Top Bar */}
-            <div className="p-5 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <h3 className="text-lg font-bold text-slate-800">Detalle de Docentes</h3>
-              <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
-                <div className="relative w-full sm:w-64">
-                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <input
-                    type="text"
-                    placeholder="Buscar profesor..."
-                    value={searchTermSemaforo}
-                    onChange={(e) => setSearchTermSemaforo(e.target.value)}
-                    className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#1e3a8a] transition-all"
-                  />
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <DonutChart data={dashboard.porEstado} total={dashboard.totalAsignaciones} />
+                <GaugeChart porcentaje={dashboard.porcentajeCompletadoVista ?? dashboard.porcentajeCompletado} />
+                <CarreraBarChart data={dashboard.porCarrera} />
+              </div>
+
+              <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+                <div className="p-5 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div>
+                    <h3 className="text-lg font-bold text-slate-800">Tabla de docentes</h3>
+                    <p className="text-sm text-slate-500 mt-1">
+                      {dashboard.campaniaActiva.nombre} - {getCampaniaYear(dashboard.campaniaActiva)} - {dashboard.campaniaActiva.estado}
+                    </p>
+                  </div>
+                  <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
+                    <div className="relative w-full sm:w-64">
+                      <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input
+                        type="text"
+                        placeholder="Buscar docente..."
+                        value={searchTermSemaforo}
+                        onChange={(event) => setSearchTermSemaforo(event.target.value)}
+                        className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#1e3a8a] transition-all"
+                      />
+                    </div>
+                    <div className="relative w-full sm:w-48">
+                      <Filter className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <select
+                        value={filterEstado}
+                        onChange={(event) => setFilterEstado(event.target.value)}
+                        aria-label="Filtrar por estado"
+                        className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#1e3a8a] appearance-none cursor-pointer"
+                      >
+                        <option value="Todos">Todos</option>
+                        <option value="pendiente">Pendientes</option>
+                        <option value="completada">Completadas</option>
+                        <option value="vencida">Vencidas</option>
+                      </select>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void handleExportarCampania()}
+                      disabled={!dashboard.campaniaActiva}
+                      className="flex items-center gap-2 px-4 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-sm font-medium transition-colors shrink-0 whitespace-nowrap disabled:opacity-50"
+                    >
+                      <Download className="w-4 h-4" />
+                      Exportar Excel
+                    </button>
+                  </div>
                 </div>
-                <div className="relative w-full sm:w-48">
-                  <Filter className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                  <select 
-                    value={filterRiesgo}
-                    onChange={(e) => setFilterRiesgo(e.target.value)}
-                    className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#1e3a8a] appearance-none cursor-pointer"
-                  >
-                    <option value="Todos">Todos los niveles</option>
-                    <option value="Saludable">Saludable</option>
-                    <option value="Precaución">Precaución</option>
-                    <option value="Crítico">Crítico</option>
-                  </select>
-                </div>
-                <button
-                  onClick={handleDownloadAllExcel}
-                  title="Descargar todas las autoevaluaciones en Excel"
-                  className="flex items-center gap-2 px-4 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-sm font-medium transition-colors shrink-0 whitespace-nowrap"
-                >
-                  <Download className="w-4 h-4" />
-                  Exportar todo
-                </button>
-              </div>
-            </div>
 
-            {/* Table Content */}
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm text-slate-600">
-                <thead className="bg-slate-50/50 text-xs uppercase text-slate-500 font-semibold border-b border-slate-100">
-                  <tr>
-                    <th className="px-6 py-4">Docente</th>
-                    <th className="px-6 py-4">Cargo</th>
-                    <th className="px-6 py-4">Asignatura</th>
-                    <th className="px-6 py-4">Estado</th>
-                    <th className="px-6 py-4 text-right">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {filteredEvaluaciones.map((ev) => {
-                    const statusStr = getStatusText(ev.alertas);
-                    return (
-                      <tr key={ev.id} className="hover:bg-slate-50/50 transition-colors">
-                        <td className="px-6 py-4 font-bold text-slate-800">{ev.nombre}</td>
-                        <td className="px-6 py-4 text-slate-600">{ev.cargo}</td>
-                        <td className="px-6 py-4 text-slate-600">{ev.asignatura}</td>
-                        <td className="px-6 py-4">
-                          <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border ${getPillStyle(ev.alertas)}`}>
-                            {statusStr} ({ev.alertas} Alertas)
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <div className="flex items-center justify-end gap-3">
-                            <button className="text-slate-400 hover:text-[#1e3a8a] transition-colors p-1" title="Ver Respuestas">
-                              <Eye className="w-5 h-5" />
-                            </button>
-                            <button className="text-slate-400 hover:text-[#1e3a8a] transition-colors p-1" title="Enviar Recordatorio">
-                              <Mail className="w-5 h-5" />
-                            </button>
-                            <button
-                              onClick={() => handleDownloadExcel(ev)}
-                              title="Descargar autoevaluación en Excel"
-                              className="text-slate-400 hover:text-emerald-600 transition-colors p-1"
-                            >
-                              <FileSpreadsheet className="w-5 h-5" />
-                            </button>
-                          </div>
-                        </td>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm text-slate-600">
+                    <thead className="bg-slate-50/50 text-xs uppercase text-slate-500 font-semibold border-b border-slate-100">
+                      <tr>
+                        <th className="px-6 py-4">Docente</th>
+                        <th className="px-6 py-4">Asignatura</th>
+                        <th className="px-6 py-4">Estado</th>
+                        <th className="px-6 py-4">Fecha respuesta</th>
+                        <th className="px-6 py-4">Firma</th>
+                        <th className="px-6 py-4 text-right">Acciones</th>
                       </tr>
-                    );
-                  })}
-                  {filteredEvaluaciones.length === 0 && (
-                    <tr>
-                      <td colSpan={5} className="px-6 py-8 text-center text-slate-500">
-                        No se encontraron docentes con los filtros aplicados.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-            
-          </div>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {filteredDocentes.map((row) => (
+                        <tr key={row.idAsignacion} className="hover:bg-slate-50/50 transition-colors">
+                          <td className="px-6 py-4">
+                            <p className="font-bold text-slate-800">{row.docente}</p>
+                            <p className="text-xs text-slate-500 mt-1">{row.carrera}</p>
+                          </td>
+                          <td className="px-6 py-4 text-slate-600">{row.asignatura}</td>
+                          <td className="px-6 py-4">
+                            <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border ${getEstadoBadgeClass(row.estado)}`}>
+                              {getEstadoLabel(row.estado)}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-slate-600">{formatDate(row.fechaRespuesta)}</td>
+                          <td className="px-6 py-4">
+                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${row.firma === "Firmada" ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-slate-50 text-slate-500 border-slate-200"}`}>
+                              {row.firma === "Firmada" ? <CheckCircle2 className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
+                              {row.firma}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <div className="flex items-center justify-end gap-3">
+                              <button
+                                type="button"
+                                onClick={() => void handleVerRespuestas(row)}
+                                disabled={isLoadingDetalle}
+                                className="text-slate-400 hover:text-[#1e3a8a] transition-colors p-1 disabled:opacity-50"
+                                title="Ver respuestas"
+                                aria-label={`Ver respuestas de ${row.docente}`}
+                              >
+                                <Eye className="w-5 h-5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleExportarAsignacion(row)}
+                                title="Exportar Excel"
+                                aria-label={`Exportar Excel de ${row.docente}`}
+                                className="text-slate-400 hover:text-emerald-600 transition-colors p-1"
+                              >
+                                <FileSpreadsheet className="w-5 h-5" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {filteredDocentes.length === 0 && (
+                        <tr>
+                          <td colSpan={6} className="px-6 py-10 text-center text-slate-500">
+                            No se encontraron docentes con los filtros aplicados.
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       )}
 
+      {isLoadingDetalle && (
+        <div className="fixed inset-0 z-50 bg-slate-900/20 p-4 flex items-center justify-center">
+          <div className="bg-white rounded-xl shadow-xl border border-slate-100 px-5 py-4 flex items-center gap-3 text-slate-600">
+            <Loader2 className="w-5 h-5 animate-spin" />
+            <span className="text-sm font-medium">Cargando respuestas...</span>
+          </div>
+        </div>
+      )}
+      {selectedDetalle && <RespuestasModal detalle={selectedDetalle} onClose={() => setSelectedDetalle(null)} />}
     </div>
   );
 }
-

@@ -69,13 +69,13 @@ function setUser(nextUser: typeof authMock.user) {
 
 async function openPendingEvaluation() {
   renderWithRouter(<AutoevaluacionForm />);
-  await screen.findByText("Matematica II");
-  await userEvent.click(screen.getByRole("button", { name: /iniciar evaluacion/i }));
+  await screen.findAllByText("Matematica II");
+  await userEvent.click(screen.getByRole("button", { name: /completar/i }));
   await screen.findByText("Formulario docente");
 }
 
 async function completeFirstForm() {
-  await userEvent.click(screen.getAllByRole("button", { name: "Si" })[0]);
+  await userEvent.click(screen.getAllByRole("radio", { name: "Si" })[0]);
   await userEvent.type(
     screen.getByPlaceholderText("Escriba su respuesta"),
     "Se realizaron consultas semanales y seguimiento por comision.",
@@ -95,6 +95,10 @@ beforeEach(() => {
   serviceMock.lanzarCampania.mockResolvedValue(undefined);
   serviceMock.responderAutoevaluacion.mockResolvedValue(undefined);
   serviceMock.enviarAutoevaluacion.mockResolvedValue(undefined);
+  serviceMock.exportarAsignacionExcel.mockResolvedValue(undefined);
+  serviceMock.exportarCampaniaExcel.mockResolvedValue(undefined);
+  serviceMock.exportarCampaniaPorCarreraExcel.mockResolvedValue(undefined);
+  serviceMock.registrarAdvertencia.mockResolvedValue(undefined);
 });
 
 describe("Autoevaluacion docente", () => {
@@ -102,9 +106,10 @@ describe("Autoevaluacion docente", () => {
     renderWithRouter(<AutoevaluacionForm />);
 
     expect(await screen.findByText("Mis autoevaluaciones")).toBeInTheDocument();
-    expect(screen.getByText("Matematica II")).toBeInTheDocument();
+    expect(screen.getAllByText("Matematica II").length).toBeGreaterThan(0);
     expect(screen.getByText("Pendiente")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /iniciar evaluacion/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /completar/i })).toBeInTheDocument();
+    expect(screen.getByText("Total")).toBeInTheDocument();
   });
 
   it("divide la evaluacion en formularios consecutivos sin categorias internas", async () => {
@@ -132,7 +137,7 @@ describe("Autoevaluacion docente", () => {
     expect(screen.getByText("Formulario 2 de 2")).toBeInTheDocument();
     expect(screen.getByText("1. El equipo conto con recursos suficientes?")).toBeInTheDocument();
 
-    await userEvent.click(screen.getAllByRole("button", { name: "No" })[0]);
+    await userEvent.click(screen.getAllByRole("radio", { name: "No" })[0]);
     await userEvent.click(screen.getAllByRole("button", { name: /\+ agregar observacion/i })[0]);
     await userEvent.type(screen.getByPlaceholderText("Observacion opcional"), "Falto equipamiento especifico.");
     await userEvent.type(screen.getByPlaceholderText("Escriba su respuesta"), "Se solicita mejorar la disponibilidad de aulas taller.");
@@ -149,7 +154,12 @@ describe("Autoevaluacion docente", () => {
         }),
       ]),
     );
-    expect(serviceMock.enviarAutoevaluacion).toHaveBeenCalledWith("asignacion-1");
+    expect(serviceMock.enviarAutoevaluacion.mock.calls[0][0]).toBe("asignacion-1");
+    expect(serviceMock.enviarAutoevaluacion.mock.calls[0][1]).toEqual(
+      expect.objectContaining({
+        firmaBase64: "test",
+      }),
+    );
     expect(await screen.findByText("Evaluacion completada")).toBeInTheDocument();
   });
 
@@ -158,12 +168,39 @@ describe("Autoevaluacion docente", () => {
     serviceMock.getAutoevaluacionDetalle.mockResolvedValue(detalleCompletado);
 
     renderWithRouter(<AutoevaluacionForm />);
-    await screen.findByText("Matematica II");
-    await userEvent.click(screen.getByRole("button", { name: /visualizar respuestas/i }));
+    await screen.findAllByText("Matematica II");
+    await userEvent.click(screen.getByRole("button", { name: /ver respuestas enviadas/i }));
     await screen.findByText("Formulario docente");
 
-    expect(screen.getAllByRole("button", { name: "Si" })[0]).toBeDisabled();
+    expect(screen.getAllByRole("radio", { name: "Si" })[0]).toBeDisabled();
     expect(screen.getByRole("button", { name: /siguiente formulario/i })).toBeDisabled();
+  });
+
+  it("muestra error visual si falla la RPC y no confirma envio", async () => {
+    serviceMock.enviarAutoevaluacion.mockRejectedValueOnce(new Error("RPC completar_asignacion fallo"));
+
+    await openPendingEvaluation();
+    await completeFirstForm();
+    await userEvent.click(screen.getAllByRole("radio", { name: "Si" })[0]);
+    await userEvent.type(screen.getByPlaceholderText("Escriba su respuesta"), "Cierre de prueba.");
+    await userEvent.click(screen.getByRole("button", { name: /firmar para test/i }));
+    await userEvent.click(screen.getByRole("checkbox"));
+    await userEvent.click(screen.getByRole("button", { name: /enviar evaluacion/i }));
+
+    expect(await screen.findByText(/no se pudo completar la evaluacion con la rpc institucional/i)).toBeInTheDocument();
+    expect(screen.queryByText("Evaluacion completada")).not.toBeInTheDocument();
+  });
+
+  it("exige firma digital antes de enviar", async () => {
+    await openPendingEvaluation();
+    await completeFirstForm();
+    await userEvent.click(screen.getAllByRole("radio", { name: "Si" })[0]);
+    await userEvent.type(screen.getByPlaceholderText("Escriba su respuesta"), "Cierre de prueba.");
+    await userEvent.click(screen.getByRole("checkbox"));
+    await userEvent.click(screen.getByRole("button", { name: /enviar evaluacion/i }));
+
+    expect(screen.getByText(/debe firmar digitalmente/i)).toBeInTheDocument();
+    expect(serviceMock.enviarAutoevaluacion).not.toHaveBeenCalled();
   });
 });
 
@@ -189,15 +226,37 @@ describe("Paneles institucionales de autoevaluacion", () => {
     expect(serviceMock.lanzarCampania).toHaveBeenCalledWith(campaniaActiva.idCampania);
   });
 
+  it("renderiza dashboard jefe con tabla, graficos y exportacion", async () => {
+    setUser(jefeCarreraUser as typeof authMock.user);
+
+    renderWithRouter(<AutoevaluacionForm />);
+    await screen.findByText("Panel Jefe de Carrera");
+
+    expect(screen.getByText("Total asignaciones")).toBeInTheDocument();
+    expect(screen.getByText("Seguimiento de docentes")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /exportar excel/i }));
+    expect(serviceMock.exportarCampaniaPorCarreraExcel).toHaveBeenCalled();
+  });
+
   it("renderiza el dashboard de secretaria con completadas y pendientes", async () => {
     setUser(secretariaUser as typeof authMock.user);
 
     renderWithRouter(<AutoevaluacionForm />);
     await screen.findByText("Panel Secretaria Academica");
 
-    expect(screen.getByText("Asignaciones")).toBeInTheDocument();
+    expect(screen.getByText("Total asignaciones")).toBeInTheDocument();
     expect(screen.getByText("Pendientes")).toBeInTheDocument();
     expect(screen.getByText("Completadas")).toBeInTheDocument();
     expect(screen.getAllByText("Autoevaluacion 2026 - 1er semestre").length).toBeGreaterThan(0);
+  });
+
+  it("ejecuta exportacion institucional de secretaria", async () => {
+    setUser(secretariaUser as typeof authMock.user);
+
+    renderWithRouter(<AutoevaluacionForm />);
+    await screen.findByText("Panel Secretaria Academica");
+    await userEvent.click(screen.getByRole("button", { name: /exportar campana/i }));
+
+    expect(serviceMock.exportarCampaniaExcel).toHaveBeenCalledWith(campaniaActiva.idCampania);
   });
 });
