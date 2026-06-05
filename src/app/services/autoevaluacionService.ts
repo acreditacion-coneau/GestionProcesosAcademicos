@@ -524,12 +524,20 @@ export async function crearCampania(input: CampaniaCreateInput): Promise<Campani
 }
 
 export async function lanzarCampania(idCampania: string): Promise<void> {
-  const { error } = await supabase
-    .from("campanias_evaluacion")
-    .update({ estado: "activa" })
-    .eq("id_campania", idCampania);
+  // Call the activate_campaign RPC function which:
+  // 1. Sets campaign status to 'activa'
+  // 2. Automatically generates evaluation assignments from designaciones
+  // 3. Is idempotent (safe to call multiple times)
+  const { data, error } = await supabase.rpc("activate_campaign", {
+    p_campaign_id: idCampania,
+  });
 
-  if (error) throw error;
+  if (error) {
+    throw new Error(`Failed to activate campaign: ${error.message}`);
+  }
+
+  // Log the response for debugging
+  console.log("Campaign activation result:", data);
 }
 
 export async function cerrarCampania(idCampania: string): Promise<void> {

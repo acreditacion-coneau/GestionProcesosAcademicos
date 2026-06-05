@@ -888,6 +888,8 @@ function JefeAutoevaluacion() {
   const [filtroEstado, setFiltroEstado] = useState<EstadoFiltro>("todos");
   const [filtroAsignatura, setFiltroAsignatura] = useState("todos");
   const [search, setSearch] = useState("");
+  const [campaignToActivate, setCampaignToActivate] = useState<CampaniaEvaluacion | null>(null);
+  const [isActivatingCampaign, setIsActivatingCampaign] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -964,12 +966,24 @@ function JefeAutoevaluacion() {
   };
 
   const handleLaunch = async (idCampania: string) => {
+    const campaign = campanias.find(c => c.idCampania === idCampania);
+    if (campaign) {
+      setCampaignToActivate(campaign);
+    }
+  };
+
+  const handleConfirmActivate = async () => {
+    if (!campaignToActivate) return;
+    setIsActivatingCampaign(true);
     try {
-      await lanzarCampania(idCampania);
-      setStatusMessage("Campana lanzada correctamente.");
+      await lanzarCampania(campaignToActivate.idCampania);
+      setStatusMessage("Campaña activada correctamente. Las asignaciones de evaluación han sido generadas automáticamente.");
+      setCampaignToActivate(null);
       await refresh();
     } catch (error) {
       setStatusMessage(getHumanErrorMessage(error instanceof Error ? error.message : ""));
+    } finally {
+      setIsActivatingCampaign(false);
     }
   };
 
@@ -987,7 +1001,7 @@ function JefeAutoevaluacion() {
       <Card className="border-slate-200 shadow-sm">
         <CardHeader>
           <CardTitle>Campanas de autoevaluacion</CardTitle>
-          <CardDescription>Genere una campana y activela para iniciar asignaciones.</CardDescription>
+          <CardDescription>Cree una campaña en borrador y luego actívela. Al activar, se generarán automáticamente las asignaciones de evaluación para todos los docentes.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-3">
@@ -1013,7 +1027,7 @@ function JefeAutoevaluacion() {
                     <EstadoBadge estado={item.estado} />
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2">
-                    {item.estado.toLowerCase() === "borrador" && <Button type="button" variant="outline" onClick={() => void handleLaunch(item.idCampania)}>Lanzar</Button>}
+                    {item.estado.toLowerCase() === "borrador" && <Button type="button" variant="outline" onClick={() => void handleLaunch(item.idCampania)}>Activar Campaña</Button>}
                     <Button type="button" variant="outline" onClick={() => { setSelectedCampaniaId(item.idCampania); void exportarCampaniaExcel(item.idCampania); }}>
                       <Download className="w-4 h-4" /> Exportar
                     </Button>
@@ -1104,6 +1118,52 @@ function JefeAutoevaluacion() {
           {!loading && filteredDetalle.length === 0 && <EmptyState>No hay resultados para los filtros seleccionados.</EmptyState>}
         </CardContent>
       </Card>
+
+      {campaignToActivate && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4 animate-in fade-in">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="bg-white rounded-xl shadow-lg border border-slate-200 max-w-md w-full p-6 space-y-4"
+          >
+            <div>
+              <h3 className="text-lg font-bold text-slate-900">Activar Campaña</h3>
+              <p className="text-sm text-slate-600 mt-2">
+                ¿Desea activar la campaña <strong>{campaignToActivate.nombre}</strong>?
+              </p>
+              <p className="text-sm text-slate-500 mt-3 bg-blue-50 border border-blue-200 rounded-lg p-3">
+                📋 <strong>Acción automática:</strong> Se generarán automáticamente todas las asignaciones de evaluación para los docentes de esta carrera, basándose en sus designaciones vigentes.
+              </p>
+            </div>
+            <div className="flex gap-3 pt-4">
+              <button
+                type="button"
+                onClick={() => setCampaignToActivate(null)}
+                disabled={isActivatingCampaign}
+                className="flex-1 px-4 py-2 rounded-lg border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleConfirmActivate()}
+                disabled={isActivatingCampaign}
+                className="flex-1 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {isActivatingCampaign ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Activando...
+                  </>
+                ) : (
+                  "Activar Campaña"
+                )}
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }
