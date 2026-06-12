@@ -229,6 +229,72 @@ export async function getDetalleEvaluacionesCarrera(idCarrera: number): Promise<
   }
 }
 
+export type RespuestaEvaluacionDetalle = {
+  idAsignacion: number;
+  idFormulario: number;
+  nombreFormulario: string;
+  idPregunta: number;
+  pregunta: string;
+  respuesta: string;
+  observacion: string | null;
+  polaridadPositiva: boolean;
+};
+
+export async function getRespuestasEvaluacionDocente(
+  idDocente: number
+): Promise<RespuestaEvaluacionDetalle[]> {
+  try {
+    const { data, error } = await supabase
+      .from("respuestas_evaluacion")
+      .select(`
+        id_respuesta,
+        id_asignacion,
+        respuesta,
+        observacion,
+        id_pregunta,
+        preguntas_evaluacion (
+          pregunta,
+          id_formulario,
+          polaridad_positiva
+        ),
+        asignaciones_evaluacion!inner (
+          id_docente
+        )
+      `)
+      .eq("asignaciones_evaluacion.id_docente", idDocente);
+
+    if (error || !data) {
+      console.warn("getRespuestasEvaluacionDocente error:", error);
+      return [];
+    }
+
+    const NOMBRE_FORMULARIO: Record<number, string> = {
+      1: "Evaluación de Desempeño",
+      2: "Evaluación de Desempeño",
+      3: "Informe Institucional",
+      4: "Informe Institucional",
+    };
+
+    return (data as Array<Record<string, unknown>>).map((r) => {
+      const pregunta = r.preguntas_evaluacion as Record<string, unknown> | null;
+      const idFormulario = Number(pregunta?.id_formulario ?? 0);
+      return {
+        idAsignacion: Number(r.id_asignacion),
+        idFormulario,
+        nombreFormulario: NOMBRE_FORMULARIO[idFormulario] ?? `Formulario ${idFormulario}`,
+        idPregunta: Number(r.id_pregunta),
+        pregunta: String(pregunta?.pregunta ?? ""),
+        respuesta: String(r.respuesta ?? ""),
+        observacion: r.observacion ? String(r.observacion) : null,
+        polaridadPositiva: Boolean(pregunta?.polaridad_positiva ?? true),
+      };
+    });
+  } catch (err) {
+    console.warn("getRespuestasEvaluacionDocente exception:", err);
+    return [];
+  }
+}
+
 export async function completarAsignacion(
   idAsignacion: number,
   respuestas: Record<number, string>,

@@ -29,7 +29,7 @@ import type {
   SecretariaAutoevaluacionDashboard,
   SecretariaAutoevaluacionRow,
 } from "../types/autoevaluacion";
-import { getResumenEvaluacionesPorCarrera, getDetalleEvaluacionesCarrera, type ResumenCarrera, type DetalleDocenteEvaluado } from "../services/evaluacionService";
+import { getResumenEvaluacionesPorCarrera, getDetalleEvaluacionesCarrera, getRespuestasEvaluacionDocente, type ResumenCarrera, type DetalleDocenteEvaluado, type RespuestaEvaluacionDetalle } from "../services/evaluacionService";
 
 const STATUS_COLORS: Record<string, string> = {
   Completadas: "#10b981",
@@ -299,7 +299,7 @@ function RespuestasModal({ detalle, onClose }: { detalle: AutoevaluacionDetalle;
 }
 
 export function SecretariaDashboard() {
-  const [activeTab, setActiveTab] = useState<"tramites" | "archivo" | "semaforo" | "evaluacion_docente">("semaforo");
+  const [activeTab, setActiveTab] = useState<"tramites" | "archivo" | "evaluacion_docente">("evaluacion_docente");
   const [searchTermArchivo, setSearchTermArchivo] = useState("");
   const [searchTermSemaforo, setSearchTermSemaforo] = useState("");
   const [filterEstado, setFilterEstado] = useState("Todos");
@@ -317,6 +317,10 @@ export function SecretariaDashboard() {
   const [filtroEstadoEval, setFiltroEstadoEval] = useState("todos");
   const [searchEval, setSearchEval] = useState("");
   const [recordatoriosEnviados, setRecordatoriosEnviados] = useState<Set<number>>(new Set());
+  const [modalDocente, setModalDocente] = useState<DetalleDocenteEvaluado | null>(null);
+  const [respuestasModal, setRespuestasModal] = useState<RespuestaEvaluacionDetalle[]>([]);
+  const [isLoadingModal, setIsLoadingModal] = useState(false);
+  const [formularioSeleccionado, setFormularioSeleccionado] = useState<number | null>(null);
 
   const loadDashboard = useCallback(async (idCampania?: string) => {
     setIsLoadingDashboard(true);
@@ -402,6 +406,21 @@ export function SecretariaDashboard() {
     }
   };
 
+  const handleVerEvaluacion = async (docente: DetalleDocenteEvaluado) => {
+    setModalDocente(docente);
+    setFormularioSeleccionado(null);
+    setRespuestasModal([]);
+    setIsLoadingModal(true);
+    try {
+      const data = await getRespuestasEvaluacionDocente(docente.idDocente);
+      setRespuestasModal(data);
+      const formularios = [...new Set(data.map((r) => r.idFormulario))].sort();
+      if (formularios.length === 1) setFormularioSeleccionado(formularios[0]);
+    } finally {
+      setIsLoadingModal(false);
+    }
+  };
+
   const handleRecordatorio = (idDocente: number) => {
     setRecordatoriosEnviados((prev) => new Set([...prev, idDocente]));
   };
@@ -435,10 +454,7 @@ export function SecretariaDashboard() {
           <button onClick={() => setActiveTab("archivo")} className={`px-5 py-2 font-medium text-sm rounded-lg transition-colors whitespace-nowrap ${activeTab === "archivo" ? "bg-slate-100 text-slate-900" : "text-slate-500 hover:text-slate-800"}`}>
             Archivo de RFs
           </button>
-          <button onClick={() => setActiveTab("semaforo")} className={`px-5 py-2 font-medium text-sm rounded-lg transition-colors whitespace-nowrap ${activeTab === "semaforo" ? "bg-slate-100 text-slate-900" : "text-slate-500 hover:text-slate-800"}`}>
-            Centro de Mando
-          </button>
-          <button onClick={() => setActiveTab("evaluacion_docente")} className={`px-5 py-2 font-medium text-sm rounded-lg transition-colors whitespace-nowrap ${activeTab === "evaluacion_docente" ? "bg-slate-100 text-slate-900" : "text-slate-500 hover:text-slate-800"}`}>
+<button onClick={() => setActiveTab("evaluacion_docente")} className={`px-5 py-2 font-medium text-sm rounded-lg transition-colors whitespace-nowrap ${activeTab === "evaluacion_docente" ? "bg-slate-100 text-slate-900" : "text-slate-500 hover:text-slate-800"}`}>
             Evaluaciones Docentes
           </button>
         </div>
@@ -517,193 +533,8 @@ export function SecretariaDashboard() {
         </div>
       )}
 
-      {activeTab === "semaforo" && (
-        <div className="space-y-6">
-          <div className="bg-white px-6 py-4 rounded-xl shadow-sm border border-slate-100 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-            <div>
-              <h1 className="text-2xl font-bold text-slate-800">Centro de Mando - Autoevaluaciones</h1>
-              <p className="text-sm text-slate-500 mt-1">
-                Campañas dinámicas y seguimiento institucional conectado a Supabase.
-              </p>
-            </div>
-            <div className="flex flex-col sm:flex-row items-center gap-3 w-full lg:w-auto">
-              <select
-                value={(selectedCampaniaId || dashboard?.campaniaActiva?.idCampania) ?? ""}
-                onChange={(event) => handleChangeCampania(event.target.value)}
-                className="w-full sm:w-80 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#1e3a8a]"
-                aria-label="Seleccionar campaña de autoevaluación"
-                disabled={isLoadingDashboard || (dashboard?.campanias.length ?? 0) === 0}
-              >
-                {(dashboard?.campanias ?? []).map((campania) => (
-                  <option key={campania.idCampania} value={campania.idCampania}>
-                    {campania.nombre} - {getCampaniaYear(campania)} - {campania.estado}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                onClick={() => void loadDashboard(selectedCampaniaId || dashboard?.campaniaActiva?.idCampania)}
-                className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50 w-full sm:w-auto"
-              >
-                <RefreshCw className="w-4 h-4" />
-                Actualizar
-              </button>
-            </div>
-          </div>
 
-          {dashboardError && <ErrorState message={dashboardError} onRetry={() => void loadDashboard(selectedCampaniaId || undefined)} />}
-
-          {isLoadingDashboard && !dashboard ? (
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-                {Array.from({ length: 5 }).map((_, index) => (
-                  <SkeletonBlock key={index} className="h-[132px]" />
-                ))}
-              </div>
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {Array.from({ length: 3 }).map((_, index) => (
-                  <SkeletonBlock key={index} className="h-[320px]" />
-                ))}
-              </div>
-              <SkeletonBlock className="h-[360px]" />
-            </div>
-          ) : !dashboard?.campaniaActiva ? (
-            <EmptyState title="Sin campañas de autoevaluación" description="Cree o active una campaña para visualizar métricas institucionales." />
-          ) : (
-            <>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-                <KpiCard label="Docentes convocados" value={dashboard.totalAsignaciones} />
-                <KpiCard label="Completadas" value={dashboard.completadas} tone="green" />
-                <KpiCard label="Pendientes" value={dashboard.pendientes} tone="amber" />
-                <KpiCard label="Vencidas" value={dashboard.vencidas} tone="rose" />
-                <KpiCard label="Cumplimiento" value={`${dashboard.porcentajeCompletado}%`} />
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <DonutChart data={dashboard.porEstado} total={dashboard.totalAsignaciones} />
-                <GaugeChart porcentaje={dashboard.porcentajeCompletadoVista ?? dashboard.porcentajeCompletado} />
-                <CarreraBarChart data={dashboard.porCarrera} />
-              </div>
-
-              <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
-                <div className="p-5 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div>
-                    <h3 className="text-lg font-bold text-slate-800">Tabla de docentes</h3>
-                    <p className="text-sm text-slate-500 mt-1">
-                      {dashboard.campaniaActiva.nombre} - {getCampaniaYear(dashboard.campaniaActiva)} - {dashboard.campaniaActiva.estado}
-                    </p>
-                  </div>
-                  <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
-                    <div className="relative w-full sm:w-64">
-                      <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                      <input
-                        type="text"
-                        placeholder="Buscar docente..."
-                        value={searchTermSemaforo}
-                        onChange={(event) => setSearchTermSemaforo(event.target.value)}
-                        className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#1e3a8a] transition-all"
-                      />
-                    </div>
-                    <div className="relative w-full sm:w-48">
-                      <Filter className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                      <select
-                        value={filterEstado}
-                        onChange={(event) => setFilterEstado(event.target.value)}
-                        aria-label="Filtrar por estado"
-                        className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#1e3a8a] appearance-none cursor-pointer"
-                      >
-                        <option value="Todos">Todos</option>
-                        <option value="pendiente">Pendientes</option>
-                        <option value="completada">Completadas</option>
-                        <option value="vencida">Vencidas</option>
-                      </select>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => void handleExportarCampania()}
-                      disabled={!dashboard.campaniaActiva}
-                      className="flex items-center gap-2 px-4 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-lg text-sm font-medium transition-colors shrink-0 whitespace-nowrap disabled:opacity-50"
-                    >
-                      <Download className="w-4 h-4" />
-                      Exportar Excel
-                    </button>
-                  </div>
-                </div>
-
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-sm text-slate-600">
-                    <thead className="bg-slate-50/50 text-xs uppercase text-slate-500 font-semibold border-b border-slate-100">
-                      <tr>
-                        <th className="px-6 py-4">Docente</th>
-                        <th className="px-6 py-4">Asignatura</th>
-                        <th className="px-6 py-4">Estado</th>
-                        <th className="px-6 py-4">Fecha respuesta</th>
-                        <th className="px-6 py-4">Firma</th>
-                        <th className="px-6 py-4 text-right">Acciones</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {filteredDocentes.map((row) => (
-                        <tr key={row.idAsignacion} className="hover:bg-slate-50/50 transition-colors">
-                          <td className="px-6 py-4">
-                            <p className="font-bold text-slate-800">{row.docente}</p>
-                            <p className="text-xs text-slate-500 mt-1">{row.carrera}</p>
-                          </td>
-                          <td className="px-6 py-4 text-slate-600">{row.asignatura}</td>
-                          <td className="px-6 py-4">
-                            <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border ${getEstadoBadgeClass(row.estado)}`}>
-                              {getEstadoLabel(row.estado)}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 text-slate-600">{formatDate(row.fechaRespuesta)}</td>
-                          <td className="px-6 py-4">
-                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border ${row.firma === "Firmada" ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-slate-50 text-slate-500 border-slate-200"}`}>
-                              {row.firma === "Firmada" ? <CheckCircle2 className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
-                              {row.firma}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 text-right">
-                            <div className="flex items-center justify-end gap-3">
-                              <button
-                                type="button"
-                                onClick={() => void handleVerRespuestas(row)}
-                                disabled={isLoadingDetalle}
-                                className="text-slate-400 hover:text-[#1e3a8a] transition-colors p-1 disabled:opacity-50"
-                                title="Ver respuestas"
-                                aria-label={`Ver respuestas de ${row.docente}`}
-                              >
-                                <Eye className="w-5 h-5" />
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => void handleExportarAsignacion(row)}
-                                title="Exportar Excel"
-                                aria-label={`Exportar Excel de ${row.docente}`}
-                                className="text-slate-400 hover:text-emerald-600 transition-colors p-1"
-                              >
-                                <FileSpreadsheet className="w-5 h-5" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                      {filteredDocentes.length === 0 && (
-                        <tr>
-                          <td colSpan={6} className="px-6 py-10 text-center text-slate-500">
-                            No se encontraron docentes con los filtros aplicados.
-                          </td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-      )}
-
-      {activeTab === "evaluacion_docente" && (
+{activeTab === "evaluacion_docente" && (
         <div className="space-y-6">
 
           {/* Header */}
@@ -712,23 +543,8 @@ export function SecretariaDashboard() {
             <p className="text-sm text-slate-500 mt-1">Seguimiento según Res. FAU 25/2026.</p>
           </div>
 
-          {/* KPIs globales */}
-          {!isLoadingEvalDoc && resumenCarreras.length > 0 && (() => {
-            const totalGlobal = resumenCarreras.reduce((s, r) => s + r.total, 0);
-            const completadasGlobal = resumenCarreras.reduce((s, r) => s + r.completadas, 0);
-            const alertasGlobal = resumenCarreras.reduce((s, r) => s + r.conAlerta, 0);
-            const pctGlobal = totalGlobal === 0 ? 0 : Math.round((completadasGlobal / totalGlobal) * 100);
-            return (
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                <KpiCard label="Total docentes" value={totalGlobal} tone="blue" />
-                <KpiCard label="Evaluados" value={completadasGlobal} tone="green" />
-                <KpiCard label="Pendientes" value={totalGlobal - completadasGlobal} tone="amber" />
-                <KpiCard label="Con alerta" value={alertasGlobal} tone="rose" />
-              </div>
-            );
-          })()}
 
-          {/* Dos widgets: progreso por carrera + docentes con alerta */}
+{/* Dos widgets: progreso por carrera + docentes con alerta */}
           {!isLoadingEvalDoc && resumenCarreras.length > 0 && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
 
@@ -845,6 +661,12 @@ export function SecretariaDashboard() {
           {/* Tabla detalle */}
           {selectedCarrera && (
             <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+                <KpiCard label="Total docentes" value={selectedCarrera.total} tone="blue" />
+                <KpiCard label="Evaluados" value={selectedCarrera.completadas} tone="green" />
+                <KpiCard label="Pendientes" value={selectedCarrera.pendientes} tone="amber" />
+                <KpiCard label="Con alerta" value={selectedCarrera.conAlerta} tone="rose" />
+              </div>
               <div className="p-5 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
                   <h3 className="text-lg font-bold text-slate-800">{selectedCarrera.carrera}</h3>
@@ -949,6 +771,16 @@ export function SecretariaDashboard() {
                               )}
                             </td>
                             <td className="px-6 py-4 text-right">
+                              {d.evaluacionesCompletadas > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => void handleVerEvaluacion(d)}
+                                  title="Ver evaluaciones"
+                                  className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors border-slate-200 text-slate-600 hover:bg-slate-50 mr-2"
+                                >
+                                  <Eye className="w-3.5 h-3.5" />
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 onClick={() => handleRecordatorio(d.idDocente)}
@@ -957,6 +789,14 @@ export function SecretariaDashboard() {
                                 className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors disabled:opacity-40 disabled:cursor-not-allowed border-slate-200 text-slate-600 hover:bg-slate-50"
                               >
                                 {recordatoriosEnviados.has(d.idDocente) ? "✓ Enviado" : "Recordatorio"}
+                              </button>
+                              <button
+                                type="button"
+                                disabled
+                                title="Próximamente"
+                                className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors border-slate-200 text-slate-400 cursor-not-allowed ml-2 opacity-50"
+                              >
+                                <FileSpreadsheet className="w-3.5 h-3.5" />
                               </button>
                             </td>
                           </tr>
@@ -980,6 +820,87 @@ export function SecretariaDashboard() {
         </div>
       )}
       {selectedDetalle && <RespuestasModal detalle={selectedDetalle} onClose={() => setSelectedDetalle(null)} />}
+
+      {modalDocente && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 p-4 flex items-center justify-center">
+          <div className="bg-white rounded-xl shadow-xl border border-slate-100 w-full max-w-3xl max-h-[88vh] overflow-hidden flex flex-col">
+            <div className="p-5 border-b border-slate-100 flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-bold text-slate-800">
+                  {modalDocente.apellido}, {modalDocente.nombre}
+                </h3>
+                <p className="text-sm text-slate-500 mt-1">Evaluaciones completadas</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setModalDocente(null); setFormularioSeleccionado(null); setRespuestasModal([]); }}
+                className="p-2 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="overflow-y-auto p-5 flex flex-col gap-4">
+              {isLoadingModal ? (
+                <div className="flex items-center justify-center gap-2 py-8 text-slate-500 text-sm">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Cargando respuestas...
+                </div>
+              ) : respuestasModal.length === 0 ? (
+                <p className="text-sm text-slate-500 text-center py-8">No hay respuestas registradas.</p>
+              ) : (
+                <>
+                  <div className="flex flex-wrap gap-2">
+                    {[...new Set(respuestasModal.map((r) => r.idFormulario))].sort().map((idForm) => {
+                      const nombre = respuestasModal.find((r) => r.idFormulario === idForm)?.nombreFormulario ?? `F${idForm}`;
+                      return (
+                        <button
+                          key={idForm}
+                          type="button"
+                          onClick={() => setFormularioSeleccionado(idForm)}
+                          className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                            formularioSeleccionado === idForm
+                              ? "bg-[#1e3a8a] text-white border-[#1e3a8a]"
+                              : "bg-white text-slate-700 border-slate-200 hover:border-slate-300"
+                          }`}
+                        >
+                          F{idForm} — {nombre}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {formularioSeleccionado !== null && (
+                    <div className="divide-y divide-slate-100">
+                      {respuestasModal
+                        .filter((r) => r.idFormulario === formularioSeleccionado)
+                        .map((r) => {
+                          const esNegativo =
+                            (r.polaridadPositiva && r.respuesta === "no") ||
+                            (!r.polaridadPositiva && r.respuesta === "si");
+                          return (
+                            <div key={r.idPregunta} className="py-4 first:pt-0 flex items-start justify-between gap-4">
+                              <p className="text-sm text-slate-700 flex-1">{r.pregunta}</p>
+                              <div className="flex flex-col items-end gap-1 shrink-0">
+                                <span className={`text-xs font-bold px-2 py-0.5 rounded-full border ${
+                                  esNegativo
+                                    ? "bg-rose-50 text-rose-700 border-rose-200"
+                                    : "bg-emerald-50 text-emerald-700 border-emerald-200"
+                                }`}>
+                                  {r.respuesta.toUpperCase()}
+                                </span>
+                                {r.observacion && (
+                                  <p className="text-xs text-slate-400 text-right max-w-[200px]">{r.observacion}</p>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
