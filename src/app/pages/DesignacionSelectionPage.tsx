@@ -3,6 +3,17 @@ import { useNavigate } from "react-router";
 import { ArrowRight, BriefcaseBusiness, CheckCircle2, GraduationCap } from "lucide-react";
 import { mapGlobalRoleToAppRole, useUser } from "../context/UserContext";
 
+const ROLES_INSTITUCIONALES_AUTORIZADOS = [
+  "decano",
+  "secretaria_academica",
+  "secretaria_tecnica",
+  "jefe_carrera",
+  "responsable_extension",
+  "responsable_investigacion",
+  "administrativo",
+  "responsable",
+];
+
 const ROLE_LABELS: Record<string, string> = {
   decano: "Decano",
   secretaria_academica: "Secretaria Academica",
@@ -24,6 +35,10 @@ export function DesignacionSelectionPage() {
   const institutionalMode = accessModes.find((mode) => mode.tipo === "institucional");
   const designaciones = academicMode?.tipo === "academico" ? academicMode.materias : [];
   const [localSelectedId, setLocalSelectedId] = useState("");
+
+  const tieneRolInstitucionalAutorizado =
+    institutionalMode?.tipo === "institucional" &&
+    ROLES_INSTITUCIONALES_AUTORIZADOS.includes(institutionalMode.rol);
 
   const activeDesignacion = useMemo(
     () => designaciones.find((designacion) => designacion.id === localSelectedId) ?? null,
@@ -83,6 +98,7 @@ export function DesignacionSelectionPage() {
             </section>
           )}
 
+          {!tieneRolInstitucionalAutorizado && (
           <section className="space-y-4">
             <div>
               <label className="block text-sm font-bold text-slate-700 mb-2">Entrar como docente por materia</label>
@@ -135,6 +151,7 @@ export function DesignacionSelectionPage() {
               </button>
             </div>
           </section>
+          )}
         </div>
       </div>
     </div>

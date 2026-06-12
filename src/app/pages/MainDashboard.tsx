@@ -1,6 +1,7 @@
 import { useUser } from "../context/UserContext";
 import { TeacherDashboard } from "./TeacherDashboard";
 import { JefeCarreraDashboard } from "./JefeCarreraDashboard";
+import { ResponsableCatedraDashboard } from "./ResponsableCatedraDashboard";
 import { SecretariaDashboard } from "./SecretariaDashboard";
 import { AdministrativoDashboard } from "./AdministrativoDashboard";
 import { SecTecnicaDashboard } from "./SecTecnicaDashboard";
@@ -17,8 +18,9 @@ export function MainDashboard() {
     case "DECANO":
       return <AdminDashboard />;
     case "DOCENTE":
-    case "DOCENTE_RESPONSABLE":
       return <TeacherDashboard />;
+    case "DOCENTE_RESPONSABLE":
+      return <ResponsableCatedraDashboard />;
     case "JEFE_CARRERA":
       return <JefeCarreraDashboard />;
     case "SECRETARIA":

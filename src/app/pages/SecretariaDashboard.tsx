@@ -29,6 +29,7 @@ import type {
   SecretariaAutoevaluacionDashboard,
   SecretariaAutoevaluacionRow,
 } from "../types/autoevaluacion";
+import { getResumenEvaluacionesPorCarrera, getDetalleEvaluacionesCarrera, type ResumenCarrera, type DetalleDocenteEvaluado } from "../services/evaluacionService";
 
 const STATUS_COLORS: Record<string, string> = {
   Completadas: "#10b981",
@@ -298,7 +299,7 @@ function RespuestasModal({ detalle, onClose }: { detalle: AutoevaluacionDetalle;
 }
 
 export function SecretariaDashboard() {
-  const [activeTab, setActiveTab] = useState<"tramites" | "archivo" | "semaforo">("semaforo");
+  const [activeTab, setActiveTab] = useState<"tramites" | "archivo" | "semaforo" | "evaluacion_docente">("semaforo");
   const [searchTermArchivo, setSearchTermArchivo] = useState("");
   const [searchTermSemaforo, setSearchTermSemaforo] = useState("");
   const [filterEstado, setFilterEstado] = useState("Todos");
@@ -308,6 +309,14 @@ export function SecretariaDashboard() {
   const [dashboardError, setDashboardError] = useState("");
   const [selectedDetalle, setSelectedDetalle] = useState<AutoevaluacionDetalle | null>(null);
   const [isLoadingDetalle, setIsLoadingDetalle] = useState(false);
+  const [resumenCarreras, setResumenCarreras] = useState<ResumenCarrera[]>([]);
+  const [isLoadingEvalDoc, setIsLoadingEvalDoc] = useState(false);
+  const [selectedCarrera, setSelectedCarrera] = useState<ResumenCarrera | null>(null);
+  const [detalleDocentes, setDetalleDocentes] = useState<DetalleDocenteEvaluado[]>([]);
+  const [isLoadingDetalleEval, setIsLoadingDetalleEval] = useState(false);
+  const [filtroEstadoEval, setFiltroEstadoEval] = useState("todos");
+  const [searchEval, setSearchEval] = useState("");
+  const [recordatoriosEnviados, setRecordatoriosEnviados] = useState<Set<number>>(new Set());
 
   const loadDashboard = useCallback(async (idCampania?: string) => {
     setIsLoadingDashboard(true);
@@ -328,6 +337,14 @@ export function SecretariaDashboard() {
   useEffect(() => {
     void loadDashboard(selectedCampaniaId || undefined);
   }, [loadDashboard, selectedCampaniaId]);
+
+  useEffect(() => {
+    if (activeTab !== "evaluacion_docente") return;
+    setIsLoadingEvalDoc(true);
+    getResumenEvaluacionesPorCarrera()
+      .then(setResumenCarreras)
+      .finally(() => setIsLoadingEvalDoc(false));
+  }, [activeTab]);
 
   const filteredDocentes = useMemo(() => {
     const rows = dashboard?.docentes ?? [];
@@ -371,6 +388,24 @@ export function SecretariaDashboard() {
     }
   };
 
+  const handleSeleccionarCarrera = async (r: ResumenCarrera) => {
+    setSelectedCarrera(r);
+    setDetalleDocentes([]);
+    setFiltroEstadoEval("todos");
+    setSearchEval("");
+    setIsLoadingDetalleEval(true);
+    try {
+      const data = await getDetalleEvaluacionesCarrera(r.idCarrera);
+      setDetalleDocentes(data);
+    } finally {
+      setIsLoadingDetalleEval(false);
+    }
+  };
+
+  const handleRecordatorio = (idDocente: number) => {
+    setRecordatoriosEnviados((prev) => new Set([...prev, idDocente]));
+  };
+
   const handleExportarCampania = async () => {
     const idCampania = dashboard?.campaniaActiva?.idCampania;
     if (!idCampania) return;
@@ -402,6 +437,9 @@ export function SecretariaDashboard() {
           </button>
           <button onClick={() => setActiveTab("semaforo")} className={`px-5 py-2 font-medium text-sm rounded-lg transition-colors whitespace-nowrap ${activeTab === "semaforo" ? "bg-slate-100 text-slate-900" : "text-slate-500 hover:text-slate-800"}`}>
             Centro de Mando
+          </button>
+          <button onClick={() => setActiveTab("evaluacion_docente")} className={`px-5 py-2 font-medium text-sm rounded-lg transition-colors whitespace-nowrap ${activeTab === "evaluacion_docente" ? "bg-slate-100 text-slate-900" : "text-slate-500 hover:text-slate-800"}`}>
+            Evaluaciones Docentes
           </button>
         </div>
       </div>
@@ -662,6 +700,274 @@ export function SecretariaDashboard() {
               </div>
             </>
           )}
+        </div>
+      )}
+
+      {activeTab === "evaluacion_docente" && (
+        <div className="space-y-6">
+
+          {/* Header */}
+          <div className="bg-white px-6 py-4 rounded-xl shadow-sm border border-slate-100">
+            <h2 className="text-2xl font-bold text-slate-800">Evaluaciones Docentes</h2>
+            <p className="text-sm text-slate-500 mt-1">Seguimiento según Res. FAU 25/2026.</p>
+          </div>
+
+          {/* KPIs globales */}
+          {!isLoadingEvalDoc && resumenCarreras.length > 0 && (() => {
+            const totalGlobal = resumenCarreras.reduce((s, r) => s + r.total, 0);
+            const completadasGlobal = resumenCarreras.reduce((s, r) => s + r.completadas, 0);
+            const alertasGlobal = resumenCarreras.reduce((s, r) => s + r.conAlerta, 0);
+            const pctGlobal = totalGlobal === 0 ? 0 : Math.round((completadasGlobal / totalGlobal) * 100);
+            return (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                <KpiCard label="Total docentes" value={totalGlobal} tone="blue" />
+                <KpiCard label="Evaluados" value={completadasGlobal} tone="green" />
+                <KpiCard label="Pendientes" value={totalGlobal - completadasGlobal} tone="amber" />
+                <KpiCard label="Con alerta" value={alertasGlobal} tone="rose" />
+              </div>
+            );
+          })()}
+
+          {/* Dos widgets: progreso por carrera + docentes con alerta */}
+          {!isLoadingEvalDoc && resumenCarreras.length > 0 && (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+              {/* Widget 1: Progreso por carrera */}
+              <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100">
+                <h3 className="text-sm font-bold text-slate-700 mb-4">Progreso por carrera</h3>
+                <div className="space-y-4">
+                  {resumenCarreras.map((r) => (
+                    <div key={r.idCarrera}>
+                      <div className="flex justify-between text-xs text-slate-600 mb-1">
+                        <span className="font-medium truncate max-w-[70%]">{r.carrera}</span>
+                        <span className="font-bold">{r.pctCompletado}%</span>
+                      </div>
+                      <div className="h-2.5 rounded-full bg-slate-100 overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-emerald-500 transition-all duration-500"
+                          style={{ width: `${r.pctCompletado}%` }}
+                        />
+                      </div>
+                      <div className="flex gap-3 mt-1 text-xs text-slate-400">
+                        <span>{r.completadas} completadas</span>
+                        <span>{r.pendientes} pendientes</span>
+                        {r.vencidas > 0 && <span className="text-rose-500">{r.vencidas} vencidas</span>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Widget 2: Docentes con alerta */}
+              <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100">
+                <h3 className="text-sm font-bold text-slate-700 mb-4">Docentes con alerta</h3>
+                {resumenCarreras.every((r) => r.conAlerta === 0) ? (
+                  <div className="flex flex-col items-center justify-center h-32 text-slate-400 text-sm">
+                    Sin alertas registradas
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {detalleDocentes
+                      .filter((d) => d.tieneAlerta)
+                      .slice(0, 8)
+                      .map((d) => (
+                        <div key={d.idDocente} className="flex items-center justify-between py-2 border-b border-slate-50 last:border-0">
+                          <div>
+                            <p className="text-sm font-semibold text-slate-800">{d.apellido}, {d.nombre}</p>
+                            <p className="text-xs text-slate-400">{d.totalNegativos} respuestas negativas</p>
+                          </div>
+                          <span className="text-xs font-bold text-rose-600 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full">
+                            Alerta
+                          </span>
+                        </div>
+                      ))}
+                    {detalleDocentes.filter((d) => d.tieneAlerta).length === 0 && selectedCarrera === null && (
+                      <p className="text-xs text-slate-400 text-center py-4">Seleccioná una carrera para ver las alertas</p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+            </div>
+          )}
+
+          {/* Cards por carrera */}
+          {isLoadingEvalDoc ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="h-36 bg-slate-100 rounded-xl animate-pulse" />
+              ))}
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {resumenCarreras.map((r) => {
+                const isSelected = selectedCarrera?.idCarrera === r.idCarrera;
+                return (
+                  <button
+                    key={r.idCarrera}
+                    type="button"
+                    onClick={() => void handleSeleccionarCarrera(r)}
+                    className={`text-left p-5 rounded-xl border shadow-sm transition-all ${
+                      isSelected
+                        ? "border-[#1e3a8a] bg-[#1e3a8a]/5 ring-2 ring-[#1e3a8a]/20"
+                        : "border-slate-200 bg-white hover:border-slate-300 hover:shadow-md"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between mb-3">
+                      <p className="text-sm font-bold text-slate-800 leading-snug">{r.carrera}</p>
+                      {r.conAlerta > 0 && (
+                        <span className="text-xs font-bold text-rose-600 bg-rose-50 border border-rose-200 px-1.5 py-0.5 rounded-full shrink-0 ml-2">
+                          {r.conAlerta} alerta{r.conAlerta > 1 ? "s" : ""}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex justify-between text-xs text-slate-500 mb-2">
+                      <span>{r.completadas} evaluados</span>
+                      <span className="font-semibold text-slate-700">{r.pctCompletado}%</span>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-slate-100 overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-emerald-500 transition-all duration-500"
+                        style={{ width: `${r.pctCompletado}%` }}
+                      />
+                    </div>
+                    <div className="mt-3 flex gap-3 text-xs">
+                      <span className="text-amber-600 font-medium">{r.pendientes} pend.</span>
+                      {r.vencidas > 0 && <span className="text-rose-600 font-medium">{r.vencidas} venc.</span>}
+                      <span className="text-slate-400">{r.total} total</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Tabla detalle */}
+          {selectedCarrera && (
+            <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+              <div className="p-5 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-800">{selectedCarrera.carrera}</h3>
+                  <p className="text-sm text-slate-500 mt-1">Detalle de docentes evaluados</p>
+                </div>
+                <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
+                  <div className="relative w-full sm:w-56">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      placeholder="Buscar docente..."
+                      value={searchEval}
+                      onChange={(e) => setSearchEval(e.target.value)}
+                      className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#1e3a8a]"
+                    />
+                  </div>
+                  <select
+                    value={filtroEstadoEval}
+                    onChange={(e) => setFiltroEstadoEval(e.target.value)}
+                    className="w-full sm:w-40 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none focus:border-[#1e3a8a]"
+                  >
+                    <option value="todos">Todos</option>
+                    <option value="pendiente">Con pendientes</option>
+                    <option value="completada">Completados</option>
+                    <option value="alerta">Con alerta</option>
+                  </select>
+                </div>
+              </div>
+
+              {isLoadingDetalleEval ? (
+                <div className="p-8 flex items-center justify-center gap-2 text-slate-500 text-sm">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Cargando...
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-sm text-slate-600">
+                    <thead className="bg-slate-50/50 text-xs uppercase text-slate-500 font-semibold border-b border-slate-100">
+                      <tr>
+                        <th className="px-6 py-4">Docente</th>
+                        <th className="px-6 py-4">Email</th>
+                        <th className="px-6 py-4">Estado</th>
+                        <th className="px-6 py-4">Negativos</th>
+                        <th className="px-6 py-4">Alerta</th>
+                        <th className="px-6 py-4 text-right">Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {detalleDocentes
+                        .filter((d) => {
+                          if (filtroEstadoEval === "pendiente") return d.evaluacionesPendientes > 0;
+                          if (filtroEstadoEval === "completada") return d.evaluacionesPendientes === 0 && d.evaluacionesCompletadas > 0;
+                          if (filtroEstadoEval === "alerta") return d.tieneAlerta;
+                          return true;
+                        })
+                        .filter((d) => {
+                          const q = searchEval.trim().toLowerCase();
+                          if (!q) return true;
+                          return (
+                            d.apellido.toLowerCase().includes(q) ||
+                            d.nombre.toLowerCase().includes(q)
+                          );
+                        })
+                        .map((d) => (
+                          <tr key={d.idDocente} className={`transition-colors hover:bg-slate-50/50 ${d.tieneAlerta ? "bg-rose-50/20" : ""}`}>
+                            <td className="px-6 py-4">
+                              <p className="font-bold text-slate-800">{d.apellido}, {d.nombre}</p>
+                            </td>
+                            <td className="px-6 py-4 text-slate-500 text-xs">{d.email ?? <span className="text-slate-300 italic">sin email</span>}</td>
+                            <td className="px-6 py-4">
+                              <div className="text-xs space-y-0.5">
+                                {d.evaluacionesCompletadas > 0 && (
+                                  <span className="inline-block bg-emerald-50 text-emerald-700 border border-emerald-200 px-2 py-0.5 rounded-full font-bold mr-1">
+                                    {d.evaluacionesCompletadas} completada{d.evaluacionesCompletadas > 1 ? "s" : ""}
+                                  </span>
+                                )}
+                                {d.evaluacionesPendientes > 0 && (
+                                  <span className="inline-block bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-bold mr-1">
+                                    {d.evaluacionesPendientes} pendiente{d.evaluacionesPendientes > 1 ? "s" : ""}
+                                  </span>
+                                )}
+                                {d.evaluacionesVencidas > 0 && (
+                                  <span className="inline-block bg-rose-50 text-rose-700 border border-rose-200 px-2 py-0.5 rounded-full font-bold">
+                                    {d.evaluacionesVencidas} vencida{d.evaluacionesVencidas > 1 ? "s" : ""}
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              {d.totalNegativos > 0 ? (
+                                <span className="font-bold text-rose-600">{d.totalNegativos}</span>
+                              ) : (
+                                <span className="text-slate-300">—</span>
+                              )}
+                            </td>
+                            <td className="px-6 py-4">
+                              {d.tieneAlerta ? (
+                                <span className="inline-flex items-center gap-1 text-xs font-bold text-rose-600 bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full">
+                                  ⚠ Alerta
+                                </span>
+                              ) : (
+                                <span className="text-slate-300">—</span>
+                              )}
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                              <button
+                                type="button"
+                                onClick={() => handleRecordatorio(d.idDocente)}
+                                disabled={!d.email || recordatoriosEnviados.has(d.idDocente)}
+                                title={!d.email ? "Sin email registrado" : recordatoriosEnviados.has(d.idDocente) ? "Recordatorio enviado" : "Enviar recordatorio"}
+                                className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors disabled:opacity-40 disabled:cursor-not-allowed border-slate-200 text-slate-600 hover:bg-slate-50"
+                              >
+                                {recordatoriosEnviados.has(d.idDocente) ? "✓ Enviado" : "Recordatorio"}
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
         </div>
       )}
 

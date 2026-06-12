@@ -662,7 +662,10 @@ async function getVistaProgresoCampania(idCampania: string): Promise<GenericRow[
     .eq("id_campania", idCampania)
     .limit(1000);
 
-  if (error) throw error;
+  if (error) {
+    console.warn("getVistaProgresoCampania error:", error);
+    return [];
+  }
   return (data ?? []) as GenericRow[];
 }
 

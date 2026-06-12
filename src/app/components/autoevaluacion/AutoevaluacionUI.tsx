@@ -37,7 +37,6 @@ export function EstadoBadge({ estado }: { estado: string }) {
   const visual = getEstadoVisual(estado);
   return (
     <Badge className={cn("border font-medium", visual.className)}>
-      <span aria-hidden>{visual.emoji}</span>
       {visual.label}
     </Badge>
   );
