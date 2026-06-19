@@ -69,6 +69,11 @@ export async function getAsignacionesEvaluador(
     const docenteMap = new Map((docentesRes.data ?? []).map((d) => [d.id_docente, d]));
     const asignaturaMap = new Map((asignaturasRes.data ?? []).map((a) => [a.id_asignatura, a]));
 
+    const JERARQUIA_CARGOS = [
+      "Titular", "Asociado", "Adjunto a Cargo", "Adjunto",
+      "Auxiliar", "Auxiliar Docente", "Ayudante", "Adscripto",
+    ];
+
     const designacionMap = new Map<string, { id_asignatura: string; cargo: string }>();
     for (const a of asignaciones) {
       const match = (designacionesRes.data ?? []).find(
@@ -78,11 +83,19 @@ export async function getAsignacionesEvaluador(
             ? String(d.id_asignatura) === String(a.id_asignatura)
             : Boolean(d.id_asignatura)),
       );
-      if (match && !designacionMap.has(a.id_docente)) {
-        designacionMap.set(a.id_docente, {
-          id_asignatura: match.id_asignatura,
-          cargo: match.cargo ?? "",
-        });
+      if (match) {
+        const existing = designacionMap.get(a.id_docente);
+        if (!existing) {
+          designacionMap.set(a.id_docente, { id_asignatura: match.id_asignatura, cargo: match.cargo ?? "" });
+        } else {
+          const idxExisting = JERARQUIA_CARGOS.indexOf(existing.cargo);
+          const idxNew = JERARQUIA_CARGOS.indexOf(match.cargo ?? "");
+          const rankExisting = idxExisting === -1 ? JERARQUIA_CARGOS.length : idxExisting;
+          const rankNew = idxNew === -1 ? JERARQUIA_CARGOS.length : idxNew;
+          if (rankNew < rankExisting) {
+            designacionMap.set(a.id_docente, { id_asignatura: match.id_asignatura, cargo: match.cargo ?? "" });
+          }
+        }
       }
     }
 

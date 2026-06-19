@@ -5,7 +5,7 @@ import { useLayoutState } from "../context/LayoutContext";
 import { getAsignacionesEvaluador } from "../services/evaluacionService";
 import {
   ListTodo, List, ChevronDown, ChevronUp, ChevronRight,
-  UserCheck, ShieldAlert, ClipboardList, FolderOpen, Check, ClipboardCheck
+  UserCheck, ShieldAlert, FolderOpen, Check, ClipboardCheck
 } from "lucide-react";
 
 type Solicitud = {
@@ -42,7 +42,6 @@ export function JefeCarreraDashboard() {
     { id: 102, docente: "Dra. Ana Sánchez", destino: "Planta Industrial", fechaSalida: "2026-05-25", estado: "Aprobado" },
   ]);
 
-  const [evaluacionEnviada, setEvaluacionEnviada] = useState(false);
   const [pendientesEval, setPendientesEval] = useState<number | null>(null);
 
   useEffect(() => {
@@ -55,7 +54,6 @@ export function JefeCarreraDashboard() {
   const [openCards, setOpenCards] = useState<Record<string, boolean>>({
     designaciones: true,
     seguros: true,
-    autoevaluacion: true,
     repositorios: true,
     evaluacion_docente: true,
   });
@@ -72,11 +70,6 @@ export function JefeCarreraDashboard() {
     setSeguros(seguros.map(s => s.id === id ? { ...s, estado: "Aprobado" } : s));
   };
 
-  const enviarAutoevaluacion = () => {
-    setEvaluacionEnviada(true);
-    setTimeout(() => setEvaluacionEnviada(false), 5000);
-  };
-
   const menuData = [
     {
       id: "designaciones",
@@ -91,13 +84,6 @@ export function JefeCarreraDashboard() {
       headerColor: "bg-[#c6e4e3] text-[#2c5f5d]",
       iconColor: "text-[#2c5f5d]",
       icon: <ShieldAlert className="w-6 h-6" />
-    },
-    {
-      id: "autoevaluacion",
-      title: "Lanzamiento Autoevaluación",
-      headerColor: "bg-[#d9d6f4] text-[#423b8f]",
-      iconColor: "text-[#423b8f]",
-      icon: <ClipboardList className="w-6 h-6" />
     },
     {
       id: "repositorios",
@@ -317,52 +303,15 @@ export function JefeCarreraDashboard() {
             </div>
           )}
 
-          {/* Card: Autoevaluación */}
-          {(activeFilter === "all" || activeFilter === "autoevaluacion") && (
-            <div className="bg-white rounded-2xl shadow-sm overflow-hidden border border-slate-100">
-              <div 
-                className={`${menuData[2].headerColor} px-6 py-4 flex justify-between items-center cursor-pointer transition-colors`}
-                onClick={() => toggleCard("autoevaluacion")}
-              >
-                <h3 className="text-base font-bold tracking-wide flex items-center gap-2">
-                  {menuData[2].icon} Lanzamiento de Autoevaluación
-                </h3>
-                {openCards.autoevaluacion ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
-              </div>
-              
-              {openCards.autoevaluacion && (
-                <div className="p-6 flex flex-col sm:flex-row items-center gap-6">
-                  <div className="flex-1">
-                    <p className="text-sm text-slate-600 leading-relaxed mb-2">
-                      Inicie el proceso de autoevaluación obligatoria. Esto notificará a todos los Responsables de Cátedra de <strong>{user.carrera}</strong> para que completen sus informes y lo deriven a sus equipos.
-                    </p>
-                    {evaluacionEnviada && (
-                      <span className="inline-flex items-center gap-1.5 text-xs font-medium text-green-700 bg-green-50 px-2.5 py-1 rounded border border-green-200">
-                        <Check className="w-3 h-3" /> Formularios distribuidos con éxito
-                      </span>
-                    )}
-                  </div>
-                  <button
-                    onClick={enviarAutoevaluacion}
-                    disabled={evaluacionEnviada}
-                    className="shrink-0 flex items-center justify-center gap-2 bg-[#423b8f] text-white font-medium py-2.5 px-6 rounded-xl hover:bg-[#342f74] transition-all shadow-sm disabled:opacity-50"
-                  >
-                    Enviar a Cátedras <ChevronRight className="w-4 h-4" />
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-
           {/* Card: Repositorios */}
           {(activeFilter === "all" || activeFilter === "repositorios") && (
             <div className="bg-white rounded-2xl shadow-sm overflow-hidden border border-slate-100">
-              <div 
-                className={`${menuData[3].headerColor} px-6 py-4 flex justify-between items-center cursor-pointer transition-colors`}
+              <div
+                className={`${menuData[2].headerColor} px-6 py-4 flex justify-between items-center cursor-pointer transition-colors`}
                 onClick={() => toggleCard("repositorios")}
               >
                 <h3 className="text-base font-bold tracking-wide flex items-center gap-2">
-                  {menuData[3].icon} Acceso a Repositorios
+                  {menuData[2].icon} Acceso a Repositorios
                 </h3>
                 {openCards.repositorios ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
               </div>
@@ -390,11 +339,11 @@ export function JefeCarreraDashboard() {
           {(activeFilter === "all" || activeFilter === "evaluacion_docente") && (
             <div className="bg-white rounded-2xl shadow-sm overflow-hidden border border-slate-100">
               <div
-                className={`${menuData[4].headerColor} px-6 py-4 flex justify-between items-center cursor-pointer transition-colors`}
+                className={`${menuData[3].headerColor} px-6 py-4 flex justify-between items-center cursor-pointer transition-colors`}
                 onClick={() => toggleCard("evaluacion_docente")}
               >
                 <h3 className="text-base font-bold tracking-wide flex items-center gap-2">
-                  {menuData[4].icon} Evaluación Docente
+                  {menuData[3].icon} Evaluación Docente
                 </h3>
                 {openCards.evaluacion_docente ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
               </div>
@@ -410,9 +359,17 @@ export function JefeCarreraDashboard() {
                       </p>
                     )}
                   </div>
-                  <Link to="/evaluacion-docente" className="flex items-center justify-center gap-2 bg-[#1e3a8a] hover:bg-[#1e3a8a]/90 text-white font-medium text-sm px-6 py-2.5 rounded-xl shadow-sm shrink-0 transition-all">
-                    Ver evaluaciones <ChevronRight className="w-4 h-4" />
-                  </Link>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <Link to="/evaluacion-docente" className="flex items-center justify-center gap-2 bg-[#1e3a8a] hover:bg-[#1e3a8a]/90 text-white font-medium text-sm px-6 py-2.5 rounded-xl shadow-sm transition-all">
+                      Ver evaluaciones <ChevronRight className="w-4 h-4" />
+                    </Link>
+                    <button
+                      onClick={() => console.log("Funcionalidad próximamente: lanzar campaña")}
+                      className="flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-medium text-sm px-6 py-2.5 rounded-xl shadow-sm shrink-0 transition-all"
+                    >
+                      Lanzar campaña
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
