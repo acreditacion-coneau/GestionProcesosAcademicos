@@ -308,6 +308,84 @@ export async function getRespuestasEvaluacionDocente(
   }
 }
 
+export async function lanzarCampania(params: {
+  p_nombre: string;
+  p_fecha_limite: string;
+  p_creada_por: number;
+  p_semestre: number;
+  p_anio: number;
+}): Promise<{ ok: boolean; id_campania?: number; error?: string }> {
+  try {
+    const { data, error } = await supabase.rpc("lanzar_campania", params);
+    if (error) {
+      const msg = error.message ?? String(error);
+      if (msg.includes("YA_EXISTE_CAMPANIA_ACTIVA")) {
+        return { ok: false, error: "YA_EXISTE_CAMPANIA_ACTIVA" };
+      }
+      return { ok: false, error: msg };
+    }
+    return { ok: true, id_campania: data as number | undefined };
+  } catch (err) {
+    console.warn("lanzarCampania exception:", err);
+    return { ok: false, error: "EXCEPTION" };
+  }
+}
+
+export async function getNotificaciones(idUsuario: number): Promise<Array<{
+  id: number;
+  titulo: string;
+  mensaje: string | null;
+  tipo: "info" | "alerta" | "exito";
+  leida: boolean;
+  id_campania: number | null;
+  accion_url: string | null;
+  created_at: string;
+}>> {
+  try {
+    const { data, error } = await supabase
+      .from("notificaciones")
+      .select("id, titulo, mensaje, tipo, leida, id_campania, accion_url, created_at")
+      .eq("id_usuario", idUsuario)
+      .order("created_at", { ascending: false })
+      .limit(50);
+    if (error || !data) {
+      console.warn("getNotificaciones error:", error);
+      return [];
+    }
+    return data;
+  } catch (err) {
+    console.warn("getNotificaciones exception:", err);
+    return [];
+  }
+}
+
+export async function marcarNotificacionLeida(idNotif: number): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from("notificaciones")
+      .update({ leida: true })
+      .eq("id", idNotif);
+    return !error;
+  } catch (err) {
+    console.warn("marcarNotificacionLeida exception:", err);
+    return false;
+  }
+}
+
+export async function marcarTodasNotificacionesLeidas(idUsuario: number): Promise<boolean> {
+  try {
+    const { error } = await supabase
+      .from("notificaciones")
+      .update({ leida: true })
+      .eq("id_usuario", idUsuario)
+      .eq("leida", false);
+    return !error;
+  } catch (err) {
+    console.warn("marcarTodasNotificacionesLeidas exception:", err);
+    return false;
+  }
+}
+
 export async function completarAsignacion(
   idAsignacion: number,
   respuestas: Record<number, string>,

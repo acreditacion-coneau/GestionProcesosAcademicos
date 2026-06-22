@@ -2,7 +2,7 @@
 import { Link } from "react-router";
 import { useUser } from "../context/UserContext";
 import { useLayoutState } from "../context/LayoutContext";
-import { getAsignacionesEvaluador } from "../services/evaluacionService";
+import { getAsignacionesEvaluador, lanzarCampania } from "../services/evaluacionService";
 import {
   ListTodo, List, ChevronDown, ChevronUp, ChevronRight,
   UserCheck, ShieldAlert, FolderOpen, Check, ClipboardCheck
@@ -43,6 +43,16 @@ export function JefeCarreraDashboard() {
   ]);
 
   const [pendientesEval, setPendientesEval] = useState<number | null>(null);
+  const [modalLanzar, setModalLanzar] = useState(false);
+  const [nombreCampania, setNombreCampania] = useState("Evaluación Docente 1° Semestre 2026");
+  const [fechaLimite, setFechaLimite] = useState(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 30);
+    return d.toISOString().split("T")[0];
+  });
+  const [lanzando, setLanzando] = useState(false);
+  const [errorLanzar, setErrorLanzar] = useState<string | null>(null);
+  const [campaniaActiva, setCampaniaActiva] = useState(false);
 
   useEffect(() => {
     if (!user.idDocente) return;
@@ -68,6 +78,28 @@ export function JefeCarreraDashboard() {
 
   const darVistoBuenoSeguro = (id: number) => {
     setSeguros(seguros.map(s => s.id === id ? { ...s, estado: "Aprobado" } : s));
+  };
+
+  const handleLanzar = async () => {
+    setLanzando(true);
+    setErrorLanzar(null);
+    const result = await lanzarCampania({
+      p_nombre: nombreCampania,
+      p_fecha_limite: fechaLimite,
+      p_creada_por: Number(user.idUsuario),
+      p_semestre: 1,
+      p_anio: new Date().getFullYear(),
+    });
+    if (result.ok) {
+      setModalLanzar(false);
+      setCampaniaActiva(true);
+    } else if (result.error === "YA_EXISTE_CAMPANIA_ACTIVA") {
+      setErrorLanzar("Ya existe una campaña activa.");
+      setCampaniaActiva(true);
+    } else {
+      setErrorLanzar("Error al lanzar. Intente nuevamente.");
+    }
+    setLanzando(false);
   };
 
   const menuData = [
@@ -363,12 +395,21 @@ export function JefeCarreraDashboard() {
                     <Link to="/evaluacion-docente" className="flex items-center justify-center gap-2 bg-[#1e3a8a] hover:bg-[#1e3a8a]/90 text-white font-medium text-sm px-6 py-2.5 rounded-xl shadow-sm transition-all">
                       Ver evaluaciones <ChevronRight className="w-4 h-4" />
                     </Link>
-                    <button
-                      onClick={() => console.log("Funcionalidad próximamente: lanzar campaña")}
-                      className="flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-medium text-sm px-6 py-2.5 rounded-xl shadow-sm shrink-0 transition-all"
-                    >
-                      Lanzar campaña
-                    </button>
+                    {campaniaActiva ? (
+                      <button
+                        disabled
+                        className="flex items-center justify-center gap-2 bg-white border border-slate-200 text-slate-400 font-medium text-sm px-6 py-2.5 rounded-xl shadow-sm shrink-0 cursor-not-allowed"
+                      >
+                        Campaña activa
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => setModalLanzar(true)}
+                        className="flex items-center justify-center gap-2 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 font-medium text-sm px-6 py-2.5 rounded-xl shadow-sm shrink-0 transition-all"
+                      >
+                        Lanzar campaña
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
@@ -379,6 +420,51 @@ export function JefeCarreraDashboard() {
       </div>
     </div>
 
+    {modalLanzar && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+        <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-md mx-4">
+          <h3 className="text-lg font-bold text-slate-900 mb-6">Lanzar campaña de evaluación</h3>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Nombre de la campaña</label>
+              <input
+                type="text"
+                value={nombreCampania}
+                onChange={e => setNombreCampania(e.target.value)}
+                className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:border-[#1e3a8a]"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Fecha límite</label>
+              <input
+                type="date"
+                value={fechaLimite}
+                onChange={e => setFechaLimite(e.target.value)}
+                className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-800 focus:outline-none focus:border-[#1e3a8a]"
+              />
+            </div>
+            {errorLanzar && (
+              <p className="text-sm text-red-600">{errorLanzar}</p>
+            )}
+          </div>
+          <div className="flex gap-3 mt-6 justify-end">
+            <button
+              onClick={() => { setModalLanzar(false); setErrorLanzar(null); }}
+              className="px-5 py-2.5 rounded-xl text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              onClick={handleLanzar}
+              disabled={lanzando}
+              className="px-5 py-2.5 rounded-xl text-sm font-medium text-white bg-[#1e3a8a] hover:bg-[#1e3a8a]/90 disabled:opacity-60 disabled:cursor-not-allowed transition-colors"
+            >
+              {lanzando ? "Lanzando..." : "Confirmar lanzamiento"}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
     </>
   );
 }
