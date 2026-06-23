@@ -10,7 +10,7 @@ type NotifRow = {
   mensaje: string | null;
   tipo: 'info' | 'alerta' | 'exito';
   leida: boolean;
-  id_campania: number | null;
+  id_campania: string | null;
   accion_url: string | null;
   created_at: string;
 };

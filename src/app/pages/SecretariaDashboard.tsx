@@ -29,7 +29,7 @@ import type {
   SecretariaAutoevaluacionDashboard,
   SecretariaAutoevaluacionRow,
 } from "../types/autoevaluacion";
-import { getResumenEvaluacionesPorCarrera, getDetalleEvaluacionesCarrera, getRespuestasEvaluacionDocente, type ResumenCarrera, type DetalleDocenteEvaluado, type RespuestaEvaluacionDetalle } from "../services/evaluacionService";
+import { exportarEvaluacionesDocentesExcel, getResumenEvaluacionesPorCarrera, getDetalleEvaluacionesCarrera, getRespuestasEvaluacionDocente, type ResumenCarrera, type DetalleDocenteEvaluado, type RespuestaEvaluacionDetalle } from "../services/evaluacionService";
 
 const STATUS_COLORS: Record<string, string> = {
   Completadas: "#10b981",
@@ -425,6 +425,35 @@ export function SecretariaDashboard() {
     setRecordatoriosEnviados((prev) => new Set([...prev, idDocente]));
   };
 
+  const handleExportarEvaluaciones = async (docentes: DetalleDocenteEvaluado[]) => {
+    if (!selectedCarrera || docentes.length === 0) return;
+    try {
+      await exportarEvaluacionesDocentesExcel(docentes, selectedCarrera.carrera);
+    } catch (error) {
+      setDashboardError(error instanceof Error ? error.message : "No se pudo exportar la evaluacion docente.");
+    }
+  };
+
+  const filteredEvaluacionDocentes = useMemo(() => {
+    return detalleDocentes
+      .filter((docente) => {
+        if (filtroEstadoEval === "pendiente") return docente.evaluacionesPendientes > 0;
+        if (filtroEstadoEval === "completada") {
+          return docente.evaluacionesPendientes === 0 && docente.evaluacionesCompletadas > 0;
+        }
+        if (filtroEstadoEval === "alerta") return docente.tieneAlerta;
+        return true;
+      })
+      .filter((docente) => {
+        const query = searchEval.trim().toLowerCase();
+        if (!query) return true;
+        return (
+          docente.apellido.toLowerCase().includes(query) ||
+          docente.nombre.toLowerCase().includes(query)
+        );
+      });
+  }, [detalleDocentes, filtroEstadoEval, searchEval]);
+
   const handleExportarCampania = async () => {
     const idCampania = dashboard?.campaniaActiva?.idCampania;
     if (!idCampania) return;
@@ -693,6 +722,15 @@ export function SecretariaDashboard() {
                     <option value="completada">Completados</option>
                     <option value="alerta">Con alerta</option>
                   </select>
+                  <button
+                    type="button"
+                    onClick={() => void handleExportarEvaluaciones(filteredEvaluacionDocentes)}
+                    disabled={filteredEvaluacionDocentes.length === 0}
+                    className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-slate-200 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <Download className="w-4 h-4" />
+                    Exportar
+                  </button>
                 </div>
               </div>
 
@@ -714,22 +752,7 @@ export function SecretariaDashboard() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {detalleDocentes
-                        .filter((d) => {
-                          if (filtroEstadoEval === "pendiente") return d.evaluacionesPendientes > 0;
-                          if (filtroEstadoEval === "completada") return d.evaluacionesPendientes === 0 && d.evaluacionesCompletadas > 0;
-                          if (filtroEstadoEval === "alerta") return d.tieneAlerta;
-                          return true;
-                        })
-                        .filter((d) => {
-                          const q = searchEval.trim().toLowerCase();
-                          if (!q) return true;
-                          return (
-                            d.apellido.toLowerCase().includes(q) ||
-                            d.nombre.toLowerCase().includes(q)
-                          );
-                        })
-                        .map((d) => (
+                      {filteredEvaluacionDocentes.map((d) => (
                           <tr key={d.idDocente} className={`transition-colors hover:bg-slate-50/50 ${d.tieneAlerta ? "bg-rose-50/20" : ""}`}>
                             <td className="px-6 py-4">
                               <p className="font-bold text-slate-800">{d.apellido}, {d.nombre}</p>
@@ -779,6 +802,7 @@ export function SecretariaDashboard() {
                                   className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors border-slate-200 text-slate-600 hover:bg-slate-50 mr-2"
                                 >
                                   <Eye className="w-3.5 h-3.5" />
+                                  Ver
                                 </button>
                               )}
                               <button
@@ -792,11 +816,12 @@ export function SecretariaDashboard() {
                               </button>
                               <button
                                 type="button"
-                                disabled
-                                title="Próximamente"
-                                className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors border-slate-200 text-slate-400 cursor-not-allowed ml-2 opacity-50"
+                                onClick={() => void handleExportarEvaluaciones([d])}
+                                title="Exportar evaluacion"
+                                className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors border-slate-200 text-slate-600 hover:bg-slate-50 ml-2"
                               >
                                 <FileSpreadsheet className="w-3.5 h-3.5" />
+                                Excel
                               </button>
                             </td>
                           </tr>

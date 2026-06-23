@@ -191,6 +191,19 @@ export type DetalleDocenteEvaluado = {
   tieneAlerta: boolean;
 };
 
+type ExportDocenteEvaluacion = Pick<
+  DetalleDocenteEvaluado,
+  | "idDocente"
+  | "nombre"
+  | "apellido"
+  | "email"
+  | "evaluacionesCompletadas"
+  | "evaluacionesPendientes"
+  | "evaluacionesVencidas"
+  | "totalNegativos"
+  | "tieneAlerta"
+>;
+
 // ── RPCs ──────────────────────────────────────────────────────────────────────
 
 export async function getResumenEvaluacionesPorCarrera(): Promise<ResumenCarrera[]> {
@@ -308,6 +321,76 @@ export async function getRespuestasEvaluacionDocente(
   }
 }
 
+async function loadXlsx() {
+  return import("xlsx");
+}
+
+function getEstadoEvaluacionDocente(docente: ExportDocenteEvaluacion): string {
+  if (docente.evaluacionesPendientes > 0) return "Con pendientes";
+  if (docente.evaluacionesCompletadas > 0) return "Completada";
+  if (docente.evaluacionesVencidas > 0) return "Vencida";
+  return "Sin evaluaciones";
+}
+
+function sanitizeFilePart(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9_-]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 80) || "evaluaciones";
+}
+
+export async function exportarEvaluacionesDocentesExcel(
+  docentes: ExportDocenteEvaluacion[],
+  carrera: string,
+): Promise<void> {
+  const XLSX = await loadXlsx();
+  const respuestasPorDocente = await Promise.all(
+    docentes.map(async (docente) => ({
+      docente,
+      respuestas: await getRespuestasEvaluacionDocente(docente.idDocente),
+    })),
+  );
+
+  const rows = respuestasPorDocente.flatMap(({ docente, respuestas }) => {
+    const base = {
+      Docente: `${docente.apellido}, ${docente.nombre}`,
+      Email: docente.email ?? "",
+      Carrera: carrera,
+      Estado: getEstadoEvaluacionDocente(docente),
+      "Evaluaciones completadas": docente.evaluacionesCompletadas,
+      "Evaluaciones pendientes": docente.evaluacionesPendientes,
+      "Evaluaciones vencidas": docente.evaluacionesVencidas,
+      "Respuestas negativas": docente.totalNegativos,
+      Alerta: docente.tieneAlerta ? "Si" : "No",
+    };
+
+    if (respuestas.length === 0) {
+      return [{
+        ...base,
+        Formulario: "",
+        Pregunta: "",
+        Respuesta: "",
+        Observacion: "",
+      }];
+    }
+
+    return respuestas.map((respuesta) => ({
+      ...base,
+      Formulario: respuesta.nombreFormulario || `Formulario ${respuesta.idFormulario}`,
+      Pregunta: respuesta.pregunta,
+      Respuesta: respuesta.respuesta,
+      Observacion: respuesta.observacion ?? "",
+    }));
+  });
+
+  const workbook = XLSX.utils.book_new();
+  const worksheet = XLSX.utils.json_to_sheet(rows);
+  XLSX.utils.book_append_sheet(workbook, worksheet, "Evaluaciones");
+  XLSX.writeFile(workbook, `evaluaciones_${sanitizeFilePart(carrera)}.xlsx`);
+}
+
 export async function lanzarCampania(params: {
   p_nombre: string;
   p_fecha_limite: string;
@@ -337,7 +420,7 @@ export async function getNotificaciones(idUsuario: number): Promise<Array<{
   mensaje: string | null;
   tipo: "info" | "alerta" | "exito";
   leida: boolean;
-  id_campania: number | null;
+  id_campania: string | null;
   accion_url: string | null;
   created_at: string;
 }>> {
